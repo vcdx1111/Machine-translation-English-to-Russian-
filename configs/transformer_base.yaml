@@ -1,0 +1,33 @@
+seed: 42
+paths:
+  raw: data/raw/rus.txt
+  processed: data/processed/full
+  checkpoints: checkpoints/transformer_base
+  results: results/transformer_base
+data:
+  max_train: null
+  max_val: null
+  max_test: null
+tokenizer:
+  vocab_size: 16000
+model:
+  d_model: 512
+  heads: 8
+  layers: 6
+  d_ff: 2048
+  dropout: 0.1
+  max_length: 128
+training:
+  device: cuda
+  cpu_threads: 2
+  batch_size: 48
+  epochs: 30
+  warmup_steps: 4000
+  label_smoothing: 0.1
+  gradient_clip: 1.0
+  mixed_precision: true
+  patience: 5
+  min_delta: 0.001
+evaluation:
+  beam_size: 4
+  length_penalty: 0.6

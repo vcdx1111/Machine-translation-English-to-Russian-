@@ -1,0 +1,33 @@
+seed: 42
+paths:
+  raw: data/raw/rus.txt
+  processed: data/processed/cpu
+  checkpoints: checkpoints/transformer_cpu
+  results: results/transformer_cpu
+data:
+  max_train: 96
+  max_val: 32
+  max_test: 40
+tokenizer:
+  vocab_size: 256
+model:
+  d_model: 32
+  heads: 4
+  layers: 1
+  d_ff: 64
+  dropout: 0.0
+  max_length: 48
+training:
+  device: cpu
+  cpu_threads: 2
+  batch_size: 8
+  epochs: 2
+  warmup_steps: 16
+  label_smoothing: 0.1
+  gradient_clip: 1.0
+  mixed_precision: false
+  patience: 3
+  min_delta: 0.001
+evaluation:
+  beam_size: 2
+  length_penalty: 0.6
