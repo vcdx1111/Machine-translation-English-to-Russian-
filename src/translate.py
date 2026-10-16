@@ -7,8 +7,22 @@ from tqdm.auto import tqdm
 from .tokenizer import PAD, BOS, EOS
 
 
+def block_repeated_ngrams(logits, sequences, n):
+    """Mask repeated ngrams in parallel; n=0 leaves logits unchanged."""
+    if n < 0:
+        raise ValueError('no_repeat_ngram_size must be nonnegative')
+    if n == 0 or sequences.size(1) < n:
+        return logits
+    windows = sequences.unfold(1, n, 1)
+    matches = ((windows[:, :, :-1] == sequences[:, None, -(n-1):]).all(-1)
+               if n > 1 else torch.ones(windows.shape[:2], dtype=torch.bool, device=sequences.device))
+    counts = torch.zeros_like(logits, dtype=torch.int32)
+    counts.scatter_add_(1, windows[:, :, -1], matches.int())
+    return logits.masked_fill(counts > 0, -torch.inf)
+
+
 @torch.inference_mode()
-def batch_decode_ids(model, src, max_length=128, beam_size=1, length_penalty=.6, mixed_precision=False):
+def batch_decode_ids(model, src, max_length=128, beam_size=1, length_penalty=.6, mixed_precision=False, no_repeat_ngram_size=0):
     if beam_size < 1:
         raise ValueError('beam_size must be positive')
     model.eval()
@@ -27,6 +41,7 @@ def batch_decode_ids(model, src, max_length=128, beam_size=1, length_penalty=.6,
         for _ in range(max_length - 1):
             # Project only the last hidden position to the vocabulary during inference.
             logits = model.decode(tokens.reshape(batch * beam_size, -1), memory, mask, last_only=True)[:, -1].float()
+            logits = block_repeated_ngrams(logits, tokens.reshape(batch * beam_size, -1), no_repeat_ngram_size)
             logits[:, [PAD, BOS]] = -torch.inf
             logp = logits.log_softmax(-1).view(batch, beam_size, -1)
             vocab = logp.size(-1)
@@ -58,7 +73,7 @@ def decode_ids(model, src, max_length=128, beam_size=1, length_penalty=.6):
 
 
 def translate_many(model, tokenizer, texts, device, max_length, beam_size=1, length_penalty=.6,
-                   batch_size=64, mixed_precision=False, progress=True):
+                   batch_size=64, mixed_precision=False, progress=True, no_repeat_ngram_size=0):
     # Sort by source length and restore original order before reference alignment.
     encoded = [tokenizer.encode(s, max_length) for s in texts]
     order = sorted(range(len(texts)), key=lambda i: len(encoded[i]))
@@ -66,7 +81,7 @@ def translate_many(model, tokenizer, texts, device, max_length, beam_size=1, len
     for start in tqdm(range(0, len(order), batch_size), desc=f'decode beam={beam_size}', disable=not progress, mininterval=1):
         indices = order[start:start + batch_size]
         src = pad_sequence([torch.tensor(encoded[i]) for i in indices], batch_first=True, padding_value=PAD).to(device)
-        outputs = batch_decode_ids(model, src, max_length, beam_size, length_penalty, mixed_precision)
+        outputs = batch_decode_ids(model, src, max_length, beam_size, length_penalty, mixed_precision, no_repeat_ngram_size)
         for i, ids in zip(indices, outputs):
             predictions[i] = tokenizer.decode(ids)
     return predictions

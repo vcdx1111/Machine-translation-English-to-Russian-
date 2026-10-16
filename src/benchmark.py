@@ -48,7 +48,7 @@ if __name__ == '__main__':
     batches = list(islice(loader, a.steps + 2))
     model = Transformer(len(tok), **cfg['model'])
     optimizer = torch.optim.Adam(model.parameters(), lr=0, betas=(.9, .98), eps=1e-9)
-    schedule = Noam(optimizer, cfg['model']['d_model'], cfg['training']['warmup_steps'])
+    schedule = Noam(optimizer, cfg['model']['d_model'], cfg['training']['warmup_steps'], cfg['training'].get('lr_factor', 1.0))
     scaler = torch.amp.GradScaler('cuda', enabled=False)
     criterion = torch.nn.CrossEntropyLoss(ignore_index=PAD, label_smoothing=cfg['training']['label_smoothing'])
     run_epoch(model, batches[:2], criterion, torch.device('cpu'), optimizer, schedule, scaler)

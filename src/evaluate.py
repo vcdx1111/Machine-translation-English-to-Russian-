@@ -11,6 +11,7 @@ from .data import load_rows
 from .model import Transformer
 from .tokenizer import Tokenizer
 from .translate import translate_many
+from .results import test_identity, write_artifacts
 
 
 def load_checkpoint(path):
@@ -42,11 +43,11 @@ def score_predictions(predictions, sources, references):
     return dict(bleu=b.score, chrf=c.score, bleu_signature=str(bleu.get_signature()), chrf_signature=str(chrf.get_signature()))
 
 
-def decode_sources(model, tok, cfg, sources, device, beam_size=1, batch_size=None):
+def decode_sources(model, tok, cfg, sources, device, beam_size=1, batch_size=None, no_repeat_ngram_size=0):
     ev = cfg['evaluation']
     return translate_many(model, tok, sources, device, cfg['model']['max_length'], beam_size,
                           ev['length_penalty'], batch_size or ev.get('batch_size', 64),
-                          cfg['training']['mixed_precision'], cfg['training'].get('progress', True))
+                          cfg['training']['mixed_precision'], cfg['training'].get('progress', True), no_repeat_ngram_size)
 
 
 def validation_greedy(model, tok, cfg, rows, device):
@@ -79,7 +80,8 @@ def evaluate_model(model, tok, cfg, rows, output, device, training_seconds, data
     # No limit: backward-compatible full beam evaluation. A limit: full greedy + extra subset beam.
     full_beam = beam > 1 and (limit is None or limit >= len(sources))
     primary_beam = beam if full_beam else 1
-    predictions = decode_sources(model, tok, cfg, sources, device, primary_beam)
+    predictions = decode_sources(model, tok, cfg, sources, device, primary_beam,
+                                 ev.get('beam_batch_size', 32) if full_beam else ev.get('batch_size', 64))
     score = score_predictions(predictions, sources, references)
     greedy_seconds = time.perf_counter() - begin
     metrics = dict(test_bleu=score['bleu'], test_chrf=score['chrf'],
@@ -88,6 +90,27 @@ def evaluate_model(model, tok, cfg, rows, output, device, training_seconds, data
                    training_seconds=training_seconds, test_sources=len(sources), test_pairs=len(rows),
                    primary_evaluation_seconds=greedy_seconds, config=cfg, data_sha256=data_hash, device=str(device),
                    purpose='cpu_smoke_only' if cfg['data'].get('max_train') else 'full_training')
+    metrics.update(test_identity(rows, data_hash, cfg['seed']))
+    metrics.update(model_family='scratch_transformer', stage='trained', no_repeat_ngram_size=0)
+    if full_beam:
+        metrics.update(test_beam_bleu=score['bleu'], test_beam_chrf=score['chrf'])
+    else:
+        metrics.update(test_greedy_bleu=score['bleu'], test_greedy_chrf=score['chrf'])
+    if full_beam and ev.get('report_greedy', False):
+        greedy = decode_sources(model, tok, cfg, sources, device, 1)
+        greedy_score = score_predictions(greedy, sources, references)
+        metrics.update(test_greedy_bleu=greedy_score['bleu'], test_greedy_chrf=greedy_score['chrf'])
+    if ev.get('repetition_ablation_ngram', 0):
+        n = ev['repetition_ablation_ngram']
+        constrained = decode_sources(model, tok, cfg, sources, device, beam,
+                                     ev.get('beam_batch_size', 32), no_repeat_ngram_size=n)
+        constrained_score = score_predictions(constrained, sources, references)
+        metrics['repetition_ablation'] = dict(no_repeat_ngram_size=n, beam_size=beam,
+                                              **constrained_score, sources=len(sources))
+        # Keep unconstrained output as the primary policy and preserve on/off samples.
+        with (output / 'samples_no_repeat.txt').open('w', encoding='utf-8') as f:
+            for source, hyp in list(zip(sources, constrained))[:30]:
+                f.write(f'EN: {source}\nREF: {" || ".join(references[source])}\nMODEL: {hyp}\n\n')
     if beam > 1 and not full_beam and limit:
         # Hash ordering fixes the subset independent of length, predictions, or model quality.
         subset = sorted(sources, key=lambda s: hashlib.sha256(s.encode()).hexdigest())[:limit]
@@ -103,10 +126,7 @@ def evaluate_model(model, tok, cfg, rows, output, device, training_seconds, data
                        beam_subset_greedy_bleu=subset_greedy['bleu'], beam_subset_greedy_chrf=subset_greedy['chrf'],
                        beam_subset_seconds=time.perf_counter() - started)
     metrics['evaluation_seconds'] = time.perf_counter() - begin
-    (output / 'metrics.json').write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding='utf-8')
-    with (output / 'samples.txt').open('w', encoding='utf-8') as f:
-        for source, hypothesis in list(zip(sources, predictions))[:30]:
-            f.write(f'EN: {source}\nREF: {" || ".join(references[source])}\nMODEL: {hypothesis}\n\n')
+    write_artifacts(output, metrics, sources, references, predictions)
     return metrics
 
 
@@ -124,13 +144,7 @@ if __name__ == '__main__':
         cfg['evaluation']['beam_max_sources'] = a.beam_max_sources
     if hashlib.sha256(Path(cfg['paths']['raw']).read_bytes()).hexdigest() != state['data_sha256']:
         raise ValueError('Raw dataset differs from checkpoint')
-    from .data import prepare
-    prepare(cfg['paths']['raw'], cfg['paths']['processed'], cfg['seed'])
-    rows = load_rows(cfg['paths']['processed'], 'test')
-    import random
-    random.Random(cfg['seed']).shuffle(rows)
-    limit = cfg['data'].get('max_test')
-    if limit:
-        rows = rows[:limit]
+    from .data import selected_splits
+    rows = selected_splits(cfg)['test']
     print(json.dumps(evaluate_model(model, tok, cfg, rows, a.results_dir or cfg['paths']['results'],
                                    device, state['training_seconds'], state['data_sha256']), ensure_ascii=False))

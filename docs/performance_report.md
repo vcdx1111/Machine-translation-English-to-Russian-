@@ -1,3 +1,5 @@
+> Historical fast-preset planning/CPU profile. The user later measured 447 seconds for 12 T4 epochs; see [user_reported_fast_run.md](user_reported_fast_run.md). The current notebook defaults to the larger model; see [large_and_helsinki_validation.md](large_and_helsinki_validation.md).
+
 # Fast Colab training: measured costs and a calibrated time budget
 
 ## Goal and scope

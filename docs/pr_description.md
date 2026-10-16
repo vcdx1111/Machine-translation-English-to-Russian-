@@ -1,4 +1,4 @@
-> Historical initial implementation evidence. The current fast pipeline, tests and time estimates are documented in [performance_report.md](performance_report.md).
+> Historical initial implementation evidence. Current large/Helsinki workflows and checks are in [large_and_helsinki_validation.md](large_and_helsinki_validation.md).
 
 # Add data audit and an English→Russian Transformer from scratch
 

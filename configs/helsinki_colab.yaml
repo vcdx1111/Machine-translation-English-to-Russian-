@@ -1,0 +1,39 @@
+seed: 42
+model:
+  name: Helsinki-NLP/opus-mt-en-ru
+  revision: main  # resolved commit is pinned in the run manifest after zero-shot
+paths:
+  raw: data/raw/rus.txt
+  processed: data/processed/helsinki
+  checkpoints: checkpoints/helsinki
+  results: results/helsinki
+data:
+  max_train: null
+  max_val: null
+  max_test: null
+  max_length: 64
+training:
+  device: cuda
+  cpu_threads: 2
+  epochs: 3
+  batch_size: 64
+  eval_batch_size: 64
+  gradient_accumulation_steps: 2
+  learning_rate: 0.00003
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  label_smoothing: 0.1
+  gradient_clip: 1.0
+  mixed_precision: true
+  num_workers: 2
+  pin_memory: true
+  patience: 2
+  logging_steps: 25
+  progress: true
+evaluation:
+  batch_size: 64
+  beam_batch_size: 32
+  beam_size: 4
+  length_penalty: 0.6
+  no_repeat_ngram_size: 0
+  max_new_tokens: 64

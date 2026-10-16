@@ -1,0 +1,23 @@
+{
+  "batches": 279,
+  "pairs": 327013,
+  "nonpad_tokens": 6386297,
+  "padded_tokens": 7779887,
+  "padding_fraction": 0.17912728038337833,
+  "target_tokens": 2755161,
+  "warmup_epochs": 1.7921146953405018,
+  "peak_noam_lr": 0.0009882117688026187,
+  "train_truncated_pairs": 1,
+  "lengths": {
+    "en": {
+      "95": 15.0,
+      "99": 19.0,
+      "100": 65.0
+    },
+    "ru": {
+      "95": 15.0,
+      "99": 19.0,
+      "100": 75.0
+    }
+  }
+}

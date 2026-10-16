@@ -12,7 +12,7 @@ import torch
 from tqdm.auto import tqdm
 import yaml
 from .batching import collate, make_loader, set_loader_epoch, loader_stats
-from .data import prepare, load_rows
+from .data import selected_splits
 from .tokenizer import PAD, train_tokenizer, Tokenizer
 from .model import Transformer
 
@@ -125,6 +125,10 @@ def runtime_estimate(history, cfg, test_sources):
     full_beam = ev['beam_size'] > 1 and (limit is None or limit >= test_sources)
     equivalent_greedy_sources = (test_sources * ev['beam_size'] if full_beam
                                  else test_sources + beam_sources * ev['beam_size'])
+    if full_beam and ev.get('report_greedy', False):
+        equivalent_greedy_sources += test_sources
+    if ev.get('repetition_ablation_ngram', 0):
+        equivalent_greedy_sources += test_sources * ev['beam_size']
     # A planning assumption, NOT a measured beam throughput; final evaluation records actual timings.
     decode_seconds = equivalent_greedy_sources / rate if rate else None
     remaining_epochs = max(0, cfg['training']['epochs'] - history[-1]['epoch'])
@@ -171,12 +175,7 @@ def run(config_path, resume=None, checkpoint_dir=None, results_dir=None, stop_af
         if state['data_sha256'] != data_hash:
             raise ValueError('Raw data changed since checkpoint')
     print(f'Preparing {paths["raw"]}', flush=True)
-    prepare(paths['raw'], paths['processed'], cfg['seed'])
-    rows = {name: load_rows(paths['processed'], name) for name in ('train', 'val', 'test')}
-    for name, values in rows.items():
-        random.Random(cfg['seed']).shuffle(values)
-        limit = cfg['data'].get(f'max_{name}')
-        rows[name] = values[:limit] if limit else values
+    rows = selected_splits(cfg)
     if state:
         tokenizer_path = checkpoint_root / 'tokenizer.model'
         tokenizer_path.write_bytes(state['tokenizer_model'])
@@ -187,7 +186,7 @@ def run(config_path, resume=None, checkpoint_dir=None, results_dir=None, stop_af
     tokenizer_bytes = (checkpoint_root / 'tokenizer.model').read_bytes()
     model = Transformer(len(tok), **cfg['model']).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0, betas=(.9, .98), eps=1e-9)
-    scheduler = Noam(optimizer, cfg['model']['d_model'], training['warmup_steps'])
+    scheduler = Noam(optimizer, cfg['model']['d_model'], training['warmup_steps'], training.get('lr_factor', 1.0))
     scaler = torch.amp.GradScaler('cuda', enabled=device.type == 'cuda' and training['mixed_precision'])
     criterion = torch.nn.CrossEntropyLoss(ignore_index=PAD, label_smoothing=training['label_smoothing'])
     start, best, bad, history, elapsed = 0, float('inf'), 0, [], 0.0
