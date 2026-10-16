@@ -129,6 +129,18 @@ def load_rows(directory, split):
         return [json.loads(line) for line in f]
 
 
+def selected_splits(cfg):
+    """The same cleaning, source-group split and optional CPU sampling for every model."""
+    prepare(cfg['paths']['raw'], cfg['paths']['processed'], cfg['seed'])
+    result = {}
+    for name in ('train', 'val', 'test'):
+        values = load_rows(cfg['paths']['processed'], name)
+        random.Random(cfg['seed']).shuffle(values)
+        limit = cfg['data'].get(f'max_{name}')
+        result[name] = values[:limit] if limit else values
+    return result
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--raw', default='data/raw/rus.txt')
