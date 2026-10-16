@@ -130,6 +130,22 @@ def evaluate_model(model, tok, cfg, rows, output, device, training_seconds, data
     return metrics
 
 
+def checkpoint_training_metadata(state, output):
+    """Preserve completed-run metadata when re-evaluating its best-only artifact."""
+    cfg=state['config']
+    metadata=dict(experiment=cfg.get('experiment',''),training_status='checkpoint_evaluation',
+                  best_epoch=state.get('best_epoch'),completed_epochs=state.get('completed_epochs',len(state.get('history',[]))))
+    metadata.update({k:state[k] for k in ('run_id','training_seconds') if k in state})
+    metadata.update(state.get('training_metadata',{}))
+    previous=Path(output)/'metrics.json'
+    if previous.exists() and state.get('run_id'):
+        old=json.loads(previous.read_text())
+        if old.get('run_id')==state['run_id'] and old.get('best_epoch')==state.get('best_epoch'):
+            metadata.update({k:old[k] for k in ('training_status','stop_reason','best_epoch','completed_epochs',
+                'training_seconds','attempted_steps','optimizer_steps','model_variant') if k in old})
+    return metadata
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('--checkpoint', required=True)
@@ -146,5 +162,9 @@ if __name__ == '__main__':
         raise ValueError('Raw dataset differs from checkpoint')
     from .data import selected_splits
     rows = selected_splits(cfg)['test']
-    print(json.dumps(evaluate_model(model, tok, cfg, rows, a.results_dir or cfg['paths']['results'],
-                                   device, state['training_seconds'], state['data_sha256']), ensure_ascii=False))
+    output=a.results_dir or cfg['paths']['results']
+    metadata=checkpoint_training_metadata(state,output)
+    result=evaluate_model(model,tok,cfg,rows,output,device,metadata['training_seconds'],state['data_sha256'])
+    result.update(metadata)
+    (Path(output)/'metrics.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
+    print(json.dumps(result,ensure_ascii=False))

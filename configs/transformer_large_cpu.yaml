@@ -1,10 +1,9 @@
-# Reduced architecture/data for large-preset full beam/greedy/repetition pipeline validation.
 seed: 42
 paths:
   raw: data/raw/rus.txt
   processed: data/processed/large_cpu
-  checkpoints: checkpoints/large_cpu
-  results: results/large_cpu
+  checkpoints: checkpoints/stable_large_cpu_v4
+  results: results/stable_large_cpu_v4
 data:
   max_train: 96
   max_val: 16
@@ -18,6 +17,9 @@ model:
   d_ff: 64
   dropout: 0.1
   max_length: 32
+  norm_first: true
+  tie_embeddings: true
+  initialization: scaled_embedding
 training:
   device: cpu
   cpu_threads: 2
@@ -29,7 +31,7 @@ training:
   prefetch_factor: 2
   epochs: 2
   warmup_steps: 8
-  lr_factor: 0.5
+  lr_factor: 0.05
   label_smoothing: 0.1
   gradient_clip: 1.0
   mixed_precision: false
@@ -37,6 +39,12 @@ training:
   min_delta: 0.001
   progress: false
   log_every: 10
+  divergence:
+    val_ratio: 1.25
+    val_delta: 0.5
+    max_consecutive_skips: 8
+    max_skip_fraction: 0.25
+    skip_check_steps: 20
 evaluation:
   val_greedy_samples: 8
   batch_size: 16
@@ -46,3 +54,4 @@ evaluation:
   report_greedy: true
   repetition_ablation_ngram: 3
   length_penalty: 0.6
+experiment: scratch_large_stable_v4_cpu

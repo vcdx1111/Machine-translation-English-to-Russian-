@@ -1,4 +1,4 @@
-"""Post-norm Transformer with explicit scaled dot-product multi-head attention."""
+"""Configurable pre/post-norm Transformer with explicit scaled dot-product multi-head attention."""
 import math
 import torch
 from torch import nn
@@ -53,21 +53,27 @@ class PositionalEncoding(nn.Module):
 
 
 class EncoderLayer(nn.Module):
-    def __init__(self, d_model, heads, d_ff, dropout):
+    def __init__(self, d_model, heads, d_ff, dropout, norm_first=False):
         super().__init__()
+        self.norm_first = norm_first
         self.attn = MultiHeadAttention(d_model, heads, dropout)
         self.ff = nn.Sequential(nn.Linear(d_model, d_ff), nn.ReLU(), nn.Dropout(dropout), nn.Linear(d_ff, d_model))
         self.norm1, self.norm2 = nn.LayerNorm(d_model), nn.LayerNorm(d_model)
         self.drop = nn.Dropout(dropout)
 
     def forward(self, x, mask):
+        if self.norm_first:
+            z = self.norm1(x)
+            x = x + self.drop(self.attn(z, z, z, mask))
+            return x + self.drop(self.ff(self.norm2(x)))
         x = self.norm1(x + self.drop(self.attn(x, x, x, mask)))
         return self.norm2(x + self.drop(self.ff(x)))
 
 
 class DecoderLayer(nn.Module):
-    def __init__(self, d_model, heads, d_ff, dropout):
+    def __init__(self, d_model, heads, d_ff, dropout, norm_first=False):
         super().__init__()
+        self.norm_first = norm_first
         self.self_attn = MultiHeadAttention(d_model, heads, dropout)
         self.cross_attn = MultiHeadAttention(d_model, heads, dropout)
         self.ff = nn.Sequential(nn.Linear(d_model, d_ff), nn.ReLU(), nn.Dropout(dropout), nn.Linear(d_ff, d_model))
@@ -75,23 +81,41 @@ class DecoderLayer(nn.Module):
         self.drop = nn.Dropout(dropout)
 
     def forward(self, x, memory, src_mask, tgt_mask):
+        if self.norm_first:
+            z = self.norm1(x)
+            x = x + self.drop(self.self_attn(z, z, z, tgt_mask))
+            x = x + self.drop(self.cross_attn(self.norm2(x), memory, memory, src_mask))
+            return x + self.drop(self.ff(self.norm3(x)))
         x = self.norm1(x + self.drop(self.self_attn(x, x, x, tgt_mask)))
         x = self.norm2(x + self.drop(self.cross_attn(x, memory, memory, src_mask)))
         return self.norm3(x + self.drop(self.ff(x)))
 
 
 class Transformer(nn.Module):
-    def __init__(self, vocab_size, d_model=512, heads=8, layers=6, d_ff=2048, dropout=.1, max_length=128):
+    def __init__(self, vocab_size, d_model=512, heads=8, layers=6, d_ff=2048, dropout=.1, max_length=128,
+                 norm_first=False, tie_embeddings=False, initialization="legacy_xavier"):
         super().__init__()
         self.scale = math.sqrt(d_model)
         self.embedding = nn.Embedding(vocab_size, d_model, padding_idx=PAD)
         self.position = PositionalEncoding(d_model, dropout, max_length)
-        self.encoder = nn.ModuleList([EncoderLayer(d_model, heads, d_ff, dropout) for _ in range(layers)])
-        self.decoder = nn.ModuleList([DecoderLayer(d_model, heads, d_ff, dropout) for _ in range(layers)])
+        self.encoder = nn.ModuleList([EncoderLayer(d_model, heads, d_ff, dropout, norm_first) for _ in range(layers)])
+        self.decoder = nn.ModuleList([DecoderLayer(d_model, heads, d_ff, dropout, norm_first) for _ in range(layers)])
+        self.encoder_norm = nn.LayerNorm(d_model) if norm_first else nn.Identity()
+        self.decoder_norm = nn.LayerNorm(d_model) if norm_first else nn.Identity()
         self.output = nn.Linear(d_model, vocab_size)
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
+        if initialization not in ('legacy_xavier', 'scaled_embedding'):
+            raise ValueError('Unknown initialization')
+        if initialization == 'scaled_embedding':
+            # After sqrt(d_model) scaling, content has unit variance independent of vocabulary size.
+            nn.init.normal_(self.embedding.weight, mean=0., std=d_model ** -.5)
+            for module in self.modules():
+                if isinstance(module, nn.Linear) and module.bias is not None:
+                    nn.init.zeros_(module.bias)
+        if tie_embeddings:
+            self.output.weight = self.embedding.weight
         with torch.no_grad():
             self.embedding.weight[PAD].zero_()
 
@@ -100,14 +124,14 @@ class Transformer(nn.Module):
         mask = source_mask(src)
         for layer in self.encoder:
             x = layer(x, mask)
-        return x, mask
+        return self.encoder_norm(x), mask
 
     def decode(self, tgt, memory, src_mask, last_only=False):
         x = self.position(self.embedding(tgt) * self.scale)
         mask = target_mask(tgt)
         for layer in self.decoder:
             x = layer(x, memory, src_mask, mask)
-        return self.output(x[:, -1:] if last_only else x)
+        return self.output(self.decoder_norm(x[:, -1:] if last_only else x))
 
     def forward(self, src, tgt):
         memory, mask = self.encode(src)

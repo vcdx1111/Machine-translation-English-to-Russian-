@@ -1,4 +1,4 @@
-> Historical initial implementation evidence. Current large/Helsinki workflows and checks are in [large_and_helsinki_validation.md](large_and_helsinki_validation.md).
+> Historical initial implementation evidence. Current stable scratch/Helsinki comparison and checks are in [stability_diagnosis.md](stability_diagnosis.md).
 
 # Add data audit and an English→Russian Transformer from scratch
 

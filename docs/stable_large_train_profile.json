@@ -1,0 +1,13 @@
+{
+  "batches": 479,
+  "pairs": 327013,
+  "nonpad_tokens": 6386297,
+  "padded_tokens": 7250687,
+  "padding_fraction": 0.11921491025609021,
+  "target_tokens": 2755161,
+  "warmup_epochs": 6.263048016701461,
+  "peak_lr": 0.00032274861218395146,
+  "lr_first_epoch": 5.153219507870425e-05,
+  "vocab_size": 16000,
+  "diagnostic": "Train-only 16k tokenizer from prior unchanged-raw profile reused; no GPU training"
+}

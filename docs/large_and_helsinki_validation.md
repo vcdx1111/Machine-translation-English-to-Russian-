@@ -1,3 +1,5 @@
+> Historical pre-stability evidence. The user subsequently reported large-model collapse; current diagnosis, safeguards and CPU checks are in [stability_diagnosis.md](stability_diagnosis.md).
+
 # Larger scratch + Helsinki CPU validation
 
 No GPU training was performed. The user's fast GPU run is separately reported in `user_reported_fast_run.md`. The new large GPU run and actual pretrained Helsinki zero-shot/fine-tuning remain for Colab.
