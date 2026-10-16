@@ -102,12 +102,12 @@ class Transformer(nn.Module):
             x = layer(x, mask)
         return x, mask
 
-    def decode(self, tgt, memory, src_mask):
+    def decode(self, tgt, memory, src_mask, last_only=False):
         x = self.position(self.embedding(tgt) * self.scale)
         mask = target_mask(tgt)
         for layer in self.decoder:
             x = layer(x, memory, src_mask, mask)
-        return self.output(x)
+        return self.output(x[:, -1:] if last_only else x)
 
     def forward(self, src, tgt):
         memory, mask = self.encode(src)

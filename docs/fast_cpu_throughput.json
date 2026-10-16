@@ -1,0 +1,89 @@
+{
+  "config": "configs/transformer_colab_fast.yaml",
+  "python": "3.12.14",
+  "torch": "2.6.0+cpu",
+  "architecture": {
+    "d_model": 256,
+    "heads": 4,
+    "layers": 3,
+    "d_ff": 1024,
+    "dropout": 0.1,
+    "max_length": 24
+  },
+  "vocabulary": 8000,
+  "parameters": 9633600,
+  "cpu_threads": 2,
+  "cpu_batch_max_tokens": 2048,
+  "cpu_max_sentences": 64,
+  "train_length_percentiles_including_bos_eos": {
+    "en": {
+      "50": 10.0,
+      "90": 14.0,
+      "95": 16.0,
+      "99": 20.0,
+      "100": 72.0
+    },
+    "ru": {
+      "50": 10.0,
+      "90": 14.0,
+      "95": 16.0,
+      "99": 21.0,
+      "100": 86.0
+    }
+  },
+  "pair_max_p99": 22.0,
+  "cap": 24,
+  "truncated_train_pairs": 1595,
+  "truncated_train_fraction": 0.004877481934968946,
+  "full_fast_batches": {
+    "batches": 479,
+    "pairs": 327013,
+    "nonpad_tokens": 6735426,
+    "padded_tokens": 7547463,
+    "padding_fraction": 0.10759072286939331,
+    "target_tokens": 2993937
+  },
+  "random_48_same_vocab_and_cap": {
+    "batches": 6813,
+    "pairs": 327013,
+    "nonpad_tokens": 6735426,
+    "padded_tokens": 12926469,
+    "padding_fraction": 0.4789430895629735,
+    "target_tokens": 2993937
+  },
+  "measured_cpu_training": {
+    "seconds": 4.859057304000089,
+    "target_tokens": 6495,
+    "target_tokens_per_second": 1336.679029212758,
+    "nonpad_tokens": 14773,
+    "nonpad_tokens_per_second": 3040.3016625958544,
+    "padding_fraction": 0.03771495570609695,
+    "steps": 12,
+    "skipped_steps": 0,
+    "amp_enabled": false,
+    "logits_dtype": "torch.float32"
+  },
+  "scenario_estimates": {
+    "5": {
+      "assumed_T4_vs_CPU_token_rate": 5,
+      "required_T4_target_tokens_per_second": 6683.39514606379,
+      "train_only_hours": 1.4932216009818953,
+      "total_hours_with_20percent_val_io_and_15min_test": 2.041865921178274
+    },
+    "10": {
+      "assumed_T4_vs_CPU_token_rate": 10,
+      "required_T4_target_tokens_per_second": 13366.79029212758,
+      "train_only_hours": 0.7466108004909476,
+      "total_hours_with_20percent_val_io_and_15min_test": 1.145932960589137
+    },
+    "20": {
+      "assumed_T4_vs_CPU_token_rate": 20,
+      "required_T4_target_tokens_per_second": 26733.58058425516,
+      "train_only_hours": 0.3733054002454738,
+      "total_hours_with_20percent_val_io_and_15min_test": 0.6979664802945685
+    }
+  },
+  "target_T4_target_tokens_per_second_for_2h": 6843.284571428571,
+  "target_T4_target_tokens_per_second_for_3h": 4354.817454545454,
+  "caveat": "CPU measurements are real; T4 multipliers and overheads are unmeasured assumptions. Use one measured T4 epoch and runtime_estimate.json instead."
+}

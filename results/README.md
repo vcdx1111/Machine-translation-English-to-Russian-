@@ -3,3 +3,5 @@
 Each run writes `metrics.json` (test BLEU/chrF, metric signatures, timing, raw-data hash and full config), `train_log.csv`, and `samples.txt` (up to 30 unique sources and all available references). The default full and CPU test splits both contain at least 30 unique sources. Small custom datasets may contain fewer.
 
 Run outputs and weights are ignored. CPU smoke scores prove execution only and must not populate the portfolio's model quality table. Commit curated full GPU results separately after review. Training time excludes preprocessing and test decoding; evaluation time is recorded separately. SentencePiece models are bundled in trusted checkpoints.
+
+The fast preset reports `test_bleu`/`test_chrf` on full-test greedy output and `beam_subset_*` plus `beam_subset_greedy_*` on a fixed hash-selected test subset. `test_decoding` identifies the full-test policy. `runtime_estimate.json` is a planning estimate from measured epoch/greedy validation timings, with an explicit beam cost assumption. Train logs additionally contain target/non-PAD token throughput, padding, AMP dtype, skipped scaler updates, epoch/checkpoint timing and CUDA peak memory.

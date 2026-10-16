@@ -93,14 +93,15 @@ class FakeDecoder(nn.Module):
     def encode(self, src):
         return src, None
 
-    def decode(self, tgt, memory, mask):
-        logits = torch.full((1, tgt.size(1), 7), -20.)
-        if tgt.size(1) == 1:
-            logits[0, -1, 4], logits[0, -1, 5] = 0., -.1
-        elif tgt[0, -1] == 5:
-            logits[0, -1, EOS] = 10
-        else:
-            logits[0, -1, EOS], logits[0, -1, 6] = 0., 0.
+    def decode(self, tgt, memory, mask, last_only=False):
+        logits = torch.full((tgt.size(0), tgt.size(1), 7), -20.)
+        for i in range(tgt.size(0)):
+            if tgt.size(1) == 1:
+                logits[i, -1, 4], logits[i, -1, 5] = 0., -.1
+            elif tgt[i, -1] == 5:
+                logits[i, -1, EOS] = 10
+            else:
+                logits[i, -1, EOS], logits[i, -1, 6] = 0., -.01
         return logits
 
 
@@ -146,7 +147,7 @@ def test_multiple_reference_metrics(tmp_path):
     rows = [{'en': 'Hello.', 'ru': 'Привет мир сегодня утром.'},
             {'en': 'Hello.', 'ru': 'Здравствуйте друзья сегодня утром.'},
             {'en': 'Goodbye.', 'ru': 'До свидания мои друзья.'}]
-    with patch('src.evaluate.translate', side_effect=['Здравствуйте друзья сегодня утром.', 'До свидания мои друзья.']):
+    with patch('src.evaluate.decode_sources', return_value=['Здравствуйте друзья сегодня утром.', 'До свидания мои друзья.']):
         metrics = evaluate_model(None, None, cfg, rows, tmp_path, torch.device('cpu'), 0, 'test')
     assert metrics['test_bleu'] == pytest.approx(100.)
     assert metrics['test_chrf'] == pytest.approx(100.)
@@ -162,3 +163,126 @@ def test_notebook_valid_and_outputs_cleared():
         if cell.cell_type == 'code':
             assert cell.execution_count is None and cell.outputs == []
             assert i > 0 and nb.cells[i-1].cell_type == 'markdown'
+
+
+def test_token_batches_budget_coverage_and_epoch_shuffle():
+    from src.batching import TokenBatchSampler
+    pairs = [([1]*s, [1]*t) for s,t in [(3,4),(4,5),(5,4),(6,7),(9,8),(3,3)]*20]
+    sampler = TokenBatchSampler(pairs, 100, 16, 30, seed=42)
+    first = list(sampler)
+    assert sorted(i for b in first for i in b) == list(range(len(pairs)))
+    for batch in first:
+        assert len(batch)*(max(len(pairs[i][0]) for i in batch)+max(len(pairs[i][1]) for i in batch)) <= 100
+    sampler.set_epoch(1)
+    assert list(sampler) != first
+    sampler.set_epoch(0)
+    assert list(sampler) == first
+
+
+def test_batched_decoding_matches_individual_and_padding():
+    from src.translate import batch_decode_ids
+    torch.manual_seed(53)
+    model = tiny_model().eval()
+    src = torch.tensor([[BOS, 4, EOS, PAD], [BOS, 5, 8, EOS]])
+    for width in (1, 3):
+        results = batch_decode_ids(model, src, 8, width)
+        individual = [decode_ids(model, x[None], 8, width) for x in src]
+        # Finished sequences may carry PAD while another batch member keeps decoding.
+        def trim(ids):
+            return ids[:ids.index(EOS)+1] if EOS in ids else ids
+        assert [trim(x) for x in results] == [trim(x) for x in individual]
+        assert all(x[0] == BOS and BOS not in x[1:] for x in results)
+
+
+def test_beam_subset_is_separate_from_full_greedy(tmp_path):
+    from src.evaluate import evaluate_model
+    from unittest.mock import patch
+    cfg = yaml.safe_load(Path('configs/transformer_colab_fast.yaml').read_text())
+    cfg['evaluation']['beam_max_sources'] = 1
+    rows = [{'en': 'Hello.', 'ru': 'Привет мир сегодня утром.'}, {'en': 'Goodbye.', 'ru': 'До свидания мои друзья.'}]
+    with patch('src.evaluate.decode_sources', side_effect=[['Привет мир сегодня утром.', 'До свидания мои друзья.'], ['ошибка']]) as decode:
+        metrics = evaluate_model(None, None, cfg, rows, tmp_path, torch.device('cpu'), 0, 'test')
+    assert decode.call_args_list[0].args[5] == 1
+    assert decode.call_args_list[1].args[5] == 3
+    assert metrics['test_decoding'] == 'greedy' and metrics['test_bleu'] == pytest.approx(100)
+    assert metrics['beam_subset_sources'] == 1 and metrics['beam_subset_bleu'] < metrics['test_bleu']
+    assert metrics['beam_subset_greedy_bleu'] == pytest.approx(100)
+
+
+def test_fast_resume_uses_token_batches_and_calibration(tmp_path):
+    raw = tmp_path/'raw.tsv'
+    raw.write_text(''.join(f'Hello number {i}.\tПривет номер {i}.\tcredit\n' for i in range(80)))
+    cfg = yaml.safe_load(Path('configs/transformer_fast_cpu.yaml').read_text())
+    cfg['paths'].update(raw=str(raw), processed=str(tmp_path/'data'))
+    cfg['training'].update(progress=False, num_workers=2)
+    cfg['tokenizer']['vocab_size'] = 96
+    cfg['model'].update(d_model=16, d_ff=32)
+    config = tmp_path/'config.yaml'
+    config.write_text(yaml.safe_dump(cfg))
+    def execute(name, resume=None, stop=None, skip=False):
+        return run(config, resume, str(tmp_path/name), str(tmp_path/f'{name}_results'), stop, skip)
+    execute('full')
+    execute('resumed', stop=1, skip=True)
+    assert not (tmp_path/'resumed_results/metrics.json').exists()
+    estimate = json.loads((tmp_path/'resumed_results/runtime_estimate.json').read_text())
+    assert estimate['planned_epochs']==2 and estimate['completed_epoch']==1
+    execute('resumed', resume=str(tmp_path/'resumed/last.pt'))
+    full = torch.load(tmp_path/'full/last.pt', weights_only=False)
+    other = torch.load(tmp_path/'resumed/last.pt', weights_only=False)
+    for key in full['model']:
+        torch.testing.assert_close(full['model'][key], other['model'][key], rtol=0, atol=0)
+    assert full['history'][-1]['logits_dtype']=='torch.float32'
+    assert not full['history'][-1]['amp_enabled']
+
+
+def test_last_position_projection_matches_full_projection():
+    model = tiny_model().eval()
+    src, tgt = torch.tensor([[BOS,4,EOS]]), torch.tensor([[BOS,5,6]])
+    memory, mask = model.encode(src)
+    torch.testing.assert_close(model.decode(tgt,memory,mask,last_only=True), model.decode(tgt,memory,mask)[:, -1:])
+
+
+def test_batch_finished_sentence_stops_and_order_restored():
+    from src.translate import batch_decode_ids, translate_many
+    class Decoder(nn.Module):
+        def encode(self, src):
+            return src, None
+        def decode(self, tgt, memory, mask, last_only=False):
+            logits = torch.full((tgt.size(0),1,8), -100.)
+            for i in range(tgt.size(0)):
+                token = EOS if memory[i,1]==4 or tgt.size(1)>1 else 6
+                logits[i,0,token] = 0
+            return logits
+    class Tokenizer:
+        def encode(self, text, max_length):
+            return [BOS,5,7,EOS] if text=='long' else [BOS,4,EOS]
+        def decode(self, ids):
+            return str(ids[:ids.index(EOS)+1])
+    model = Decoder()
+    src = torch.tensor([[BOS,4,EOS,PAD],[BOS,5,7,EOS]])
+    ids = batch_decode_ids(model,src,8,1)
+    assert ids[0]==[BOS,EOS,PAD] and ids[1]==[BOS,6,EOS]
+    pred = translate_many(model,Tokenizer(),['long','short'],torch.device('cpu'),8,batch_size=2,progress=False)
+    assert pred==[str([BOS,6,EOS]), str([BOS,EOS])]
+
+
+def test_notebook_streams_stdout_and_stderr_before_exit():
+    import contextlib
+    import nbformat
+    import sys
+    import time
+    nb = nbformat.read('notebooks/train_transformer.ipynb', as_version=4)
+    scope = {}
+    exec(nb.cells[2].source.split('REPO_URL =')[0],scope)
+    observed = {}
+    class Sink:
+        def write(self, text):
+            for marker in ('early', 'late'):
+                if marker in text:
+                    observed[marker] = time.perf_counter()
+        def flush(self):
+            pass
+    with contextlib.redirect_stdout(Sink()):
+        scope['stream']([sys.executable,'-u','-c',
+                         'import sys,time; print("early",flush=True); time.sleep(0.25); print("late",file=sys.stderr,flush=True)'])
+    assert observed['late'] - observed['early'] > .15

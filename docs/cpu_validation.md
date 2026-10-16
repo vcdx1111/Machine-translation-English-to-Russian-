@@ -1,3 +1,5 @@
+> Historical initial implementation evidence. The current fast pipeline, tests and time estimates are documented in [performance_report.md](performance_report.md).
+
 # CPU validation evidence
 
 This is a functional smoke run, **not a trained translation benchmark**. No GPU training was performed. The raw dataset remains unchanged.

@@ -1,0 +1,46 @@
+# A 2–3 hour T4 target, calibrated by the first measured epoch; not a GPU benchmark.
+seed: 42
+paths:
+  raw: data/raw/rus.txt
+  processed: data/processed/colab_fast
+  checkpoints: checkpoints/transformer_colab_fast
+  results: results/transformer_colab_fast
+data:
+  max_train: null
+  max_val: null
+  max_test: null
+tokenizer:
+  vocab_size: 8000
+model:
+  d_model: 256
+  heads: 4
+  layers: 3
+  d_ff: 1024
+  dropout: 0.1
+  # Train-only BPE pair-max p99=22 including BOS/EOS; round up to a multiple of 8.
+  max_length: 24
+training:
+  device: cuda
+  cpu_threads: 2
+  max_tokens: 16384  # batch_size * (max_src_len + max_tgt_len), INCLUDING padding
+  max_sentences: 1024
+  bucket_size: 8192
+  num_workers: 2
+  pin_memory: true
+  prefetch_factor: 2
+  epochs: 12
+  warmup_steps: 800
+  label_smoothing: 0.1
+  gradient_clip: 1.0
+  mixed_precision: true
+  patience: 3
+  min_delta: 0.001
+  progress: true
+  log_every: 20
+evaluation:
+  val_greedy_samples: 128  # fixed validation subset, never beam during training
+  batch_size: 128
+  beam_size: 3
+  beam_batch_size: 64
+  beam_max_sources: 1024  # full-test GREEDY + separate deterministic beam subset
+  length_penalty: 0.6
