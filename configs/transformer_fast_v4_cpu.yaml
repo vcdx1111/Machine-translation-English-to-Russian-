@@ -1,0 +1,56 @@
+seed: 42
+paths:
+  raw: data/raw/rus.txt
+  processed: data/processed/fast_v4_cpu
+  checkpoints: checkpoints/fast_v4_cpu
+  results: results/fast_v4_cpu
+data:
+  max_train: 96
+  max_val: 16
+  max_test: 40
+tokenizer:
+  vocab_size: 256
+model:
+  d_model: 32
+  heads: 4
+  layers: 1
+  d_ff: 64
+  dropout: 0.1
+  max_length: 24
+  norm_first: false
+  tie_embeddings: false
+  initialization: legacy_xavier
+training:
+  device: cpu
+  cpu_threads: 2
+  max_tokens: 1024
+  max_sentences: 32
+  bucket_size: 8192
+  num_workers: 0
+  pin_memory: false
+  prefetch_factor: 2
+  epochs: 2
+  warmup_steps: 16
+  label_smoothing: 0.1
+  gradient_clip: 1.0
+  mixed_precision: false
+  patience: 3
+  min_delta: 0.001
+  progress: false
+  log_every: 20
+  divergence:
+    val_ratio: 1.25
+    val_delta: 0.5
+    max_consecutive_skips: 8
+    max_skip_fraction: 0.25
+    skip_check_steps: 20
+  lr_factor: 0.1
+evaluation:
+  val_greedy_samples: 8
+  batch_size: 16
+  beam_size: 4
+  beam_batch_size: 8
+  beam_max_sources: null
+  length_penalty: 0.6
+  report_greedy: true
+experiment: scratch_fast_v4_cpu

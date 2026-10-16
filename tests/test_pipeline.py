@@ -199,6 +199,7 @@ def test_beam_subset_is_separate_from_full_greedy(tmp_path):
     from unittest.mock import patch
     cfg = yaml.safe_load(Path('configs/transformer_colab_fast.yaml').read_text())
     cfg['evaluation']['beam_max_sources'] = 1
+    cfg['evaluation']['beam_size'] = 3
     rows = [{'en': 'Hello.', 'ru': 'Привет мир сегодня утром.'}, {'en': 'Goodbye.', 'ru': 'До свидания мои друзья.'}]
     with patch('src.evaluate.decode_sources', side_effect=[['Привет мир сегодня утром.', 'До свидания мои друзья.'], ['ошибка']]) as decode:
         metrics = evaluate_model(None, None, cfg, rows, tmp_path, torch.device('cpu'), 0, 'test')

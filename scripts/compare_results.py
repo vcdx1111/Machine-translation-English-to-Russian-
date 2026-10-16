@@ -5,10 +5,12 @@ import json
 from pathlib import Path
 
 
-def compare(paths, include_cpu=False):
+def compare(paths, include_cpu=False, require_four=False):
     found = set()
     for path in paths:
         path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(path)
         if path.is_file():
             found.add(path)
         else:
@@ -17,6 +19,31 @@ def compare(paths, include_cpu=False):
     metrics = [(p, m) for p, m in metrics if include_cpu or m.get('purpose') != 'cpu_smoke_only']
     if not metrics:
         raise ValueError('No result files (CPU smoke runs are excluded unless --include-cpu)')
+    if require_four:
+        roles = set()
+        for _, m in metrics:
+            cfg = m.get('config', {})
+            family = m.get('model_family', '')
+            experiment = m.get('experiment', cfg.get('experiment', ''))
+            model = cfg.get('model', {})
+            if family == 'scratch_transformer':
+                if experiment.startswith('scratch_fast') or (model.get('d_model') == 256 and model.get('layers') == 3):
+                    roles.add('fast')
+                if experiment.startswith('scratch_large') or (model.get('d_model') == 512 and model.get('layers') == 6):
+                    roles.add('large')
+            elif family == 'helsinki_marian' or (include_cpu and family == 'marian_cpu_fixture'):
+                if m.get('stage') in ('zero_shot', 'fine_tuned'):
+                    roles.add(m['stage'])
+        missing = {'fast','large','zero_shot','fine_tuned'} - roles
+        if missing:
+            raise ValueError(f'Missing required comparison runs: {sorted(missing)}')
+        if not include_cpu:
+            for path, m in metrics:
+                if m.get('schema_version') != 2 or not m.get('test_split_sha256'):
+                    raise ValueError(f'Required comparison needs schema v2 exact test identity: {path}')
+                if (m.get('test_decoding') != 'beam' or m.get('test_beam_size') != 4
+                        or 'test_greedy_bleu' not in m or 'test_greedy_chrf' not in m):
+                    raise ValueError(f'Required comparison needs full-test beam4 AND greedy: {path}')
     hashes = {m['test_split_sha256'] for _, m in metrics if m.get('test_split_sha256')}
     if len(hashes) > 1:
         raise ValueError('Different held-out reference sets: compare these in separate tables')
@@ -42,7 +69,7 @@ def compare(paths, include_cpu=False):
         ngram = m.get('no_repeat_ngram_size', 0)
         if ngram:
             policy += f'/no-repeat-{ngram}'
-        rows.append(dict(run=str(path.parent), model=m.get('model_family', 'legacy'), stage=m.get('stage','legacy'), policy=policy,
+        rows.append(dict(run=str(path.parent), model=m.get('experiment') or m.get('model_family', 'legacy'), status=m.get('training_status','unreported'), stage=m.get('stage','legacy'), policy=policy,
                          beam=m.get('test_beam_size', m.get('config',{}).get('evaluation',{}).get('beam_size','?')),
                          bleu=m['test_bleu'], chrf=m['test_chrf'], train_seconds=m['training_seconds'],
                          eval_seconds=m.get('evaluation_seconds', 0.), sources=m['test_sources'], identity=identity))
@@ -64,10 +91,10 @@ def write_comparison(rows, output):
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
-    lines = ['| Run | Model | Stage | Decode | Beam | BLEU | chrF | Train s | Eval s | Sources | Identity |',
-             '| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |']
+    lines = ['| Run | Model | Status | Stage | Decode | Beam | BLEU | chrF | Train s | Eval s | Sources | Identity |',
+             '| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |']
     for r in rows:
-        lines.append(f'| {r["run"].replace("|", "/")} | {r["model"]} | {r["stage"]} | {r["policy"]} | {r["beam"]} | '
+        lines.append(f'| {r["run"].replace("|", "/")} | {r["model"]} | {r["status"]} | {r["stage"]} | {r["policy"]} | {r["beam"]} | '
                      f'{r["bleu"]:.2f} | {r["chrf"]:.2f} | {r["train_seconds"]:.1f} | '
                      f'{r["eval_seconds"]:.1f} | {r["sources"]} | {r["identity"]} |')
     lines += ['', 'Times are per-run totals repeated per policy; do not sum rows. Full-test scores only. Legacy files lack exact reference-set verification. '
@@ -82,5 +109,6 @@ if __name__ == '__main__':
     p.add_argument('paths', nargs='+', help='metrics.json files or result directories (recursive)')
     p.add_argument('--output', default='results/comparison')
     p.add_argument('--include-cpu', action='store_true')
+    p.add_argument('--require-four-models', action='store_true', help='Require scratch fast, large, Helsinki zero-shot and fine-tuned')
     a = p.parse_args()
-    print(write_comparison(compare(a.paths, a.include_cpu), a.output))
+    print(write_comparison(compare(a.paths, a.include_cpu, a.require_four_models), a.output))

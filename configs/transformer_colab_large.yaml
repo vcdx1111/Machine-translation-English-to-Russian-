@@ -1,10 +1,9 @@
-# Larger scratch model; start a new run, never resume a fast-model checkpoint.
 seed: 42
 paths:
   raw: data/raw/rus.txt
   processed: data/processed/colab_large
-  checkpoints: checkpoints/transformer_colab_large
-  results: results/transformer_colab_large
+  checkpoints: checkpoints/scratch_large_stable_v4
+  results: results/scratch_large_stable_v4
 data:
   max_train: null
   max_val: null
@@ -18,18 +17,21 @@ model:
   d_ff: 2048
   dropout: 0.1
   max_length: 64
+  norm_first: true
+  tie_embeddings: true
+  initialization: scaled_embedding
 training:
   device: cuda
   cpu_threads: 2
-  max_tokens: 32768
-  max_sentences: 2048
+  max_tokens: 16384
+  max_sentences: 1024
   bucket_size: 8192
   num_workers: 2
   pin_memory: true
   prefetch_factor: 2
   epochs: 30
-  warmup_steps: 500
-  lr_factor: 0.5
+  warmup_steps: 3000
+  lr_factor: 0.4
   label_smoothing: 0.1
   gradient_clip: 1.0
   mixed_precision: true
@@ -37,6 +39,12 @@ training:
   min_delta: 0.001
   progress: true
   log_every: 10
+  divergence:
+    val_ratio: 1.25
+    val_delta: 0.5
+    max_consecutive_skips: 8
+    max_skip_fraction: 0.25
+    skip_check_steps: 20
 evaluation:
   val_greedy_samples: 128
   batch_size: 128
@@ -46,3 +54,4 @@ evaluation:
   report_greedy: true
   repetition_ablation_ngram: 3
   length_penalty: 0.6
+experiment: scratch_large_stable_v4
