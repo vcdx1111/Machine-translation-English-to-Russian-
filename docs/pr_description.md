@@ -1,3 +1,5 @@
+> Historical initial implementation evidence. The current fast pipeline, tests and time estimates are documented in [performance_report.md](performance_report.md).
+
 # Add data audit and an English→Russian Transformer from scratch
 
 ## Implemented

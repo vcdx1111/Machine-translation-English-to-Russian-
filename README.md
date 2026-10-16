@@ -8,9 +8,24 @@ An end-to-end PyTorch portfolio project: audit a parallel corpus, fit a train-on
 
 See [the measured data report](docs/data_report.md) for column counts, missing values, duplicate pairs, noise filters, length percentiles, multi-translation examples, source-group counts and dataset SHA-256. There is no dataset downloader or Kaggle API dependency.
 
+## Fast Colab T4 workflow
+
+The notebook now defaults to `configs/transformer_colab_fast.yaml`: 256 dimensions, three encoder/decoder layers, FFN 1024, 8k BPE, length cap 24, 12 epochs and patience 3. The **2–3 hour train+evaluation target is conditional, not measured on T4**. Train-only BPE pair-max p99 is 22 tokens; cap 24 truncates 0.49% of training pairs. Length buckets with a 16,384 padded source+target token budget reduce epoch-zero batches from 6,813 to 479 and padding from 47.9% to 10.8% (same vocabulary/cap comparison).
+
+[Performance report](docs/performance_report.md) records CPU measurements, assumptions, batching rules and first-epoch calibration. Validation uses loss plus a fixed 128-source greedy subset. Final metrics report full-test greedy and a separate deterministic 1,024-source beam subset; they are never conflated.
+
+```bash
+python -m src.train --config configs/transformer_fast_cpu.yaml
+# On T4: measure one real epoch first, without test evaluation.
+python -u -m src.train --config configs/transformer_colab_fast.yaml --stop-after-epochs 1 --skip-test
+python -u -m src.train --config configs/transformer_colab_fast.yaml --resume checkpoints/transformer_colab_fast/last.pt
+```
+
+Step progress/ETA, target tokens/sec, FP16 logits diagnostics, epoch time and peak GPU memory are logged. Notebook subprocess stdout/stderr stream live. Use a **new run name** for the new architecture; the old base checkpoints cannot resume into it. Latest train and validation loaders use spawned persistent workers and CUDA pinning. `runtime_estimate.json` projects the total from real epoch timing rather than CPU-to-GPU assumptions.
+
 ## Architecture
 
-The base configuration implements the post-norm encoder–decoder from *Attention Is All You Need*: six encoder and six decoder layers, `d_model=512`, eight attention heads, feed-forward width 2048, ReLU, sinusoidal positional encoding, residual connections and dropout. Scaled dot-product multi-head attention, encoder/decoder blocks, padding masks and causal masks are explicit PyTorch code; `nn.Transformer` is not used. English and Russian share a train-only 16,000-piece BPE vocabulary and input embedding. The output projection is independent.
+The original `transformer_base.yaml` configuration implements the post-norm encoder–decoder from *Attention Is All You Need*: six encoder and six decoder layers, `d_model=512`, eight attention heads, feed-forward width 2048, ReLU, sinusoidal positional encoding, residual connections and dropout. Scaled dot-product multi-head attention, encoder/decoder blocks, padding masks and causal masks are explicit PyTorch code; `nn.Transformer` is not used. In the original base model, English and Russian share a train-only 16,000-piece BPE vocabulary and input embedding. The output projection is independent.
 
 Training uses teacher forcing, label-smoothed cross entropy (PAD ignored), Adam (β₁=.9, β₂=.98, ε=1e-9), Noam warmup, gradient clipping, CUDA FP16 AMP and validation-loss early stopping. Greedy and length-normalized beam search are implemented. sacreBLEU (13a tokenization) and chrF use every available Russian reference for each exact English source. Metric signatures are recorded.
 
@@ -31,7 +46,7 @@ python -m src.train --config configs/transformer_cpu.yaml
 
 The CPU configuration uses 96 training pairs, 32 validation pairs and 40 test pairs selected **after** grouped splitting. Its two tiny epochs validate plumbing, not translation quality. Outputs go to `results/transformer_cpu/`; do not present these scores as a trained model benchmark.
 
-On a CUDA GPU:
+For the retained original large baseline on a CUDA GPU (outside the fast budget):
 
 ```bash
 python -m src.train --config configs/transformer_base.yaml
@@ -46,9 +61,9 @@ python -m src.evaluate --checkpoint checkpoints/transformer_base/last.pt \
   --beam-size 1 --results-dir results/greedy
 ```
 
-A fresh run refuses an existing checkpoint directory. Choose `--checkpoint-dir` and `--results-dir` for a new experiment. Only load trusted checkpoints (`torch.load` uses pickle for optimizer/RNG state). Resume requires the same data hash, model, tokenizer, seed, sampling and training settings (except total epochs, device and CPU thread count). Exact CPU epoch-boundary resume is tested; bitwise CUDA determinism and cross-device equivalence are not promised. Early-stopped runs remain stopped on resume. A disconnect mid-epoch replays that epoch. Keep Drive mounted and avoid concurrent writers; an interrupted Drive write should leave the preceding checkpoint intact, but Drive durability is not guaranteed by this code.
+A fresh run refuses an existing checkpoint directory. Choose `--checkpoint-dir` and `--results-dir` for a new experiment. Only load trusted checkpoints (`torch.load` uses pickle for optimizer/RNG state). Resume requires the same data hash, model, tokenizer, seed, sampling and optimization/batching settings. Epoch budget, device and loader/logging runtime settings may change. Legacy pipeline checkpoints remain evaluable but require a new training run after this batching/RNG change. Exact CPU epoch-boundary resume is tested; bitwise CUDA determinism and cross-device equivalence are not promised. Early-stopped runs remain stopped on resume. A disconnect mid-epoch replays that epoch. Keep Drive mounted and avoid concurrent writers; an interrupted Drive write should leave the preceding checkpoint intact, but Drive durability is not guaranteed by this code.
 
-Training automatically evaluates **best validation-loss weights**, never the final epoch by default. Every completed run saves:
+Training automatically evaluates **best validation-loss weights**, never the final epoch by default. `--skip-test` omits test decoding during a calibration run. Every completed run saves:
 
 - `metrics.json`: test BLEU, chrF, signatures, training/evaluation time, data hash and full effective config.
 - `train_log.csv`: epoch, train/validation loss, learning rate and epoch duration; restored on resume.
@@ -58,9 +73,9 @@ Checkpoints include model/optimizer/scaler, Noam step, RNG state, best weights, 
 
 ## Colab
 
-Open [notebooks/train_transformer.ipynb](notebooks/train_transformer.ipynb) in Colab. All outputs are cleared. Select a T4 GPU and run cells in order: clone → install → mount Google Drive → inspect raw data → train/resume → inspect results. The notebook uses this PR branch until merge; change `REPO_REF` to `main` after merge. Set a unique run name; set `RESUME=True` when reconnecting to its saved `last.pt`.
+Open [notebooks/train_transformer.ipynb](notebooks/train_transformer.ipynb) in Colab. All outputs are cleared. Select a T4 GPU and run cells in order: clone → install → mount Google Drive → inspect raw data → train/resume → inspect results. The notebook uses `feat/scratch-transformer` and fast-forwards a clean existing checkout on rerun; change `REPO_REF` to `main` after merge if desired. Use a unique fast run name; set `RESUME=True` when reconnecting to its saved `last.pt`. The notebook first measures one epoch, prints the total projection, then resumes the same run.
 
-Planning estimate only: 12–48 T4 GPU-hours for 30 epochs plus 0.5–3 hours for serial beam evaluation; this has **not** been benchmarked. Estimate the real budget from the first epoch; Colab session limits may require repeated resumes. Full GPU training, T4 memory fit, AMP and the Colab/Drive integration require your run. If memory is insufficient, lower batch size in a copied config under a new experiment name and record that change. Evaluation is serial and favors simplicity over throughput.
+Fast-config planning target: **2–3 T4 hours including evaluation**, conditional on about 4.4k–6.8k target tokens/sec with the overhead assumptions in the performance report. The same architecture measured 1,337 target tokens/sec on two CPU threads; CPU speed alone cannot establish a T4 rate. Use the notebook's first-epoch measurement to replace the assumptions. Full GPU training, memory fit and Drive behavior remain unverified here. If OOM occurs, lower `max_tokens` in a copied config under a new experiment name. Batched decoding projects only the latest hidden position; prefixes still recompute without a KV cache.
 
 ## Results
 
@@ -77,17 +92,17 @@ See [CPU validation evidence](docs/cpu_validation.md) for development checks, se
 - Normalize Unicode to NFC and collapse whitespace. Preserve case, punctuation and Russian combining stress marks; apply conservative expected-script, control-character, 300-character and 60-word filters. Remove exact normalized pair duplicates. All rule counts are in the report.
 - Split **source groups**, not pairs: English casefolded alphanumerics define a group. Seed 42 shuffles sorted groups into 90/5/5 proportions by group count; row proportions differ. All alternative Russian translations remain together. Similar paraphrases are not guaranteed isolated.
 - Fit a joint BPE tokenizer only on the training split. BOS/EOS/PAD/UNK have explicit IDs. Vocabulary uses `hard_vocab_limit=False` so a tiny corpus may create fewer pieces. No validation/test vocabulary fitting.
-- Use a 128-token cap (including BOS/EOS), preserving EOS on truncation. This is a compute compromise for T4. Character/word filtering precedes tokenization, so subword truncation can still happen. The CPU cap is 48. Review length distributions before increasing caps.
-- Keep the recognizable six-layer post-norm paper architecture; batch 48 and vocabulary 16k are T4-oriented choices, not measured optimal settings. Dropout, smoothing, Adam/Noam and clipping are configurable. Input embeddings are shared; output weights are not tied.
+- The retained base uses a 128-token cap (including BOS/EOS), preserving EOS on truncation. The fast config instead uses a train-measured p99-based cap of 24. The base cap predates the fast throughput audit. Character/word filtering precedes tokenization, so subword truncation can still happen. The original CPU cap is 48; the fast CPU smoke uses 24. Review length distributions before increasing caps.
+- Retain the recognizable six-layer post-norm paper architecture as the original baseline; the fast preset uses three layers and 256 dimensions to fit a shorter budget; batch 48 and vocabulary 16k are T4-oriented choices, not measured optimal settings. Dropout, smoothing, Adam/Noam and clipping are configurable. Input embeddings are shared; output weights are not tied.
 - Validation uses the same smoothed token loss as training, weighted by non-PAD target tokens. Best loss controls checkpoint selection and early stopping; test scores never control training or tuning.
-- Multi-reference corpus evaluation groups exact English strings; missing references use sacreBLEU's `None` support. Samples are the deterministic first 30 shuffled unique test sources. Unfinished sequences at the decoding cap are scored as produced. Beam search keeps finished hypotheses and uses GNMT-style length penalty, no KV cache.
+- Multi-reference corpus evaluation groups exact English strings; missing references use sacreBLEU's `None` support. Samples are the deterministic first 30 shuffled unique test sources. Unfinished sequences at the decoding cap are scored as produced. Batched beam search keeps finished hypotheses and uses GNMT-style length penalty, no KV cache. The fast preset records full greedy and hash-selected beam-subset scores separately.
 - Save complete epoch-boundary resume state and refuse accidental fresh-run checkpoint overwrite. Bundle tokenizer bytes so a Drive checkpoint is portable. Preprocessing is regenerated deterministically against a checked hash. Test training continuity with nonzero dropout.
 - GPU learning belongs to the user. Automated development validation uses a tiny CPU subset only. No GPU quality claims, fabricated scores, fine-tuning stage or all-code combined notebook is included.
 - This cloud task already has an isolated checkout; use it directly without creating additional Git worktrees.
 
 ## What to send after training
 
-Send `metrics.json`, `train_log.csv`, `samples.txt`, the YAML you used, Git commit, GPU model, wall time, completed/best epoch, batch-size changes, and any warnings/OOM/NaN messages. Keep checkpoints on Drive; share a checkpoint location only if further debugging needs it. We will inspect train/validation curves, tokenization/truncation and errors before the next stage.
+Send `metrics.json`, `train_log.csv`, `samples.txt`, `runtime_estimate.json`, the YAML you used, Git commit, GPU model, wall time, completed/best epoch, AMP dtype, tokens/sec, peak memory, token-budget changes, and any warnings/OOM/NaN messages. Keep checkpoints on Drive; share a checkpoint location only if further debugging needs it. We will inspect train/validation curves, tokenization/truncation and errors before the next stage.
 
 ## Decision after the first GPU run
 
