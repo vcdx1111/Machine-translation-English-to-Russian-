@@ -1,5 +1,8 @@
 > Historical pre-stability evidence. The user subsequently reported large-model collapse; current diagnosis, safeguards and CPU checks are in [stability_diagnosis.md](stability_diagnosis.md).
 
+> Historical experiment record. Final measured GPU results and publication instructions are in the root README; old timing estimates are superseded.
+
+
 # Fast Colab training: measured costs and a calibrated time budget
 
 ## Goal and scope

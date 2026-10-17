@@ -1,0 +1,54 @@
+{
+  "provenance": "User-reported Colab T4 results; original GPU artifacts remain in Google Drive. Not a reconstructed metrics.json or epoch log.",
+  "test_sources": 12556,
+  "test_split_sha256_prefix": "bc6e2388",
+  "results_root": "/content/drive/MyDrive/en_ru_translation",
+  "runs": [
+    {
+      "name": "Transformer fast v4",
+      "path": "scratch_fast_v4_fullbeam/results",
+      "greedy_bleu": 54.53,
+      "greedy_chrf": 67.93,
+      "beam_bleu": 56.08,
+      "beam_chrf": 69.18,
+      "training_seconds": 475,
+      "training_status": "completed"
+    },
+    {
+      "name": "Transformer large v4",
+      "path": "scratch_large_stable_v4/results",
+      "greedy_bleu": 58.65,
+      "greedy_chrf": 71.44,
+      "beam_bleu": 59.88,
+      "beam_chrf": 72.37,
+      "training_seconds": 4446,
+      "training_status": "early_stopped"
+    },
+    {
+      "name": "Helsinki zero-shot",
+      "path": "helsinki_v1_seed42/results/zero_shot",
+      "greedy_bleu": 55.38,
+      "greedy_chrf": 71.78,
+      "beam_bleu": 58.1,
+      "beam_chrf": 73.09,
+      "training_seconds": 0,
+      "training_status": "completed"
+    },
+    {
+      "name": "Helsinki fine-tuned",
+      "path": "helsinki_v1_seed42/results/finetuned",
+      "greedy_bleu": 56.41,
+      "greedy_chrf": 74.52,
+      "beam_bleu": 62.68,
+      "beam_chrf": 76.77,
+      "training_seconds": 1901,
+      "training_status": "completed"
+    }
+  ],
+  "repetition_ablation": {
+    "name": "Transformer large v4 + no-repeat-3",
+    "beam_bleu": 59.87,
+    "beam_chrf": 72.36
+  },
+  "test_split_sha256": "bc6e2388f0938c3332e747f174c98d16530f69b4641f0cb6ddb3c074e8f39f30"
+}

@@ -1,5 +1,8 @@
 # User-reported fast Transformer GPU run
 
+> Historical experiment record. Final measured GPU results and publication instructions are in the root README; old timing estimates are superseded.
+
+
 Source: results supplied in this conversation after the user ran `configs/transformer_colab_fast.yaml` on Colab T4. Raw metrics/log/sample artifacts were not attached, so these numbers have not been independently revalidated and are not emitted as synthetic `metrics.json`.
 
 - 12 epochs, 447 seconds, ~36 seconds/epoch, no early stopping.

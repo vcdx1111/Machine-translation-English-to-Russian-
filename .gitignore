@@ -8,3 +8,7 @@ checkpoints/
 .env
 results/*
 !results/README.md
+
+*.safetensors
+.env.*
+*.pem

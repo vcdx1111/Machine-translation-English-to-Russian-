@@ -1,5 +1,7 @@
 # Post-LN collapse diagnosis and stable v4 validation
 
+> This records the stabilization implementation and CPU evidence. The subsequent completed large v4 GPU results and convergence analysis are in the root README.
+
 ## User report and limits of diagnosis
 
 The user reported Helsinki completion: zero-shot greedy 55.38/71.78, beam4 58.10/73.09; fine-tuned greedy 56.41/74.52, beam4 62.68/76.77 after 3 epochs / 1,901 seconds. These are multi-reference BLEU/chrF. A reported unsupported tail (`Предлагаю вам съездить в Бостон по адресу:`) illustrates source-faithfulness risk. No Helsinki weights/decoding policy is changed in this stabilization task. OPUS/Tatoeba pretraining overlap remains unresolved.

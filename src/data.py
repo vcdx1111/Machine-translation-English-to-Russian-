@@ -111,7 +111,7 @@ def prepare(raw, out, seed=42, report=None):
         Path(report).parent.mkdir(parents=True, exist_ok=True)
         Path(report).write_text('# Data report\n\nGenerated from the checked-in `data/raw/rus.txt`; no download is required.\n\n'
             'Each row has English, Russian, and Tatoeba attribution, separated by tabs. Attribution is retained in processed rows. '
-            'The supplied provenance is Kaggle / Tatoeba; the exact Kaggle URL is not supplied. Preserve the original attribution '
+            'Source: Kaggle “English-Russian dictionary for machine translate”, originally Tatoeba (CC-BY 2.0); the exact Kaggle listing URL was not supplied. Preserve the original attribution '
             'and review the dataset license before redistribution; rows identify CC-BY 2.0 (France).\n\n'
             '## Cleaning and leakage prevention\n\nNFC Unicode normalization and whitespace collapse; preserve case, punctuation, and Russian stress accents. '
             'Remove empty text, missing expected Latin/Cyrillic scripts, control characters, duplicate normalized pairs, '

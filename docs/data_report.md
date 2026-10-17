@@ -2,7 +2,7 @@
 
 Generated from the checked-in `data/raw/rus.txt`; no download is required.
 
-Each row has English, Russian, and Tatoeba attribution, separated by tabs. Attribution is retained in processed rows. The supplied provenance is Kaggle / Tatoeba; the exact Kaggle URL is not supplied. Preserve the original attribution and review the dataset license before redistribution; rows identify CC-BY 2.0 (France).
+Each row has English, Russian, and Tatoeba attribution, separated by tabs. Attribution is retained in processed rows. Source: Kaggle “English-Russian dictionary for machine translate”, originally Tatoeba (CC-BY 2.0); the exact Kaggle listing URL was not supplied. Preserve the original attribution and review the dataset license before redistribution; rows identify CC-BY 2.0 (France).
 
 ## Cleaning and leakage prevention
 

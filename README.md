@@ -1,132 +1,189 @@
 # English → Russian machine translation
 
-A PyTorch portfolio project comparing a **hand-written Transformer**, a stable larger Transformer, and **Helsinki-NLP/opus-mt-en-ru zero-shot / fine-tuning**. Scratch attention, positions, encoder/decoder and masks are explicit code; no `nn.Transformer`. GPU learning belongs to the user in Colab; this workspace runs CPU diagnostics. Separate scratch/Helsinki notebooks exist; the final combined notebook remains deferred.
+A portfolio study of what a Transformer built from scratch can learn from a small parallel corpus, how training can fail, and how it compares with a pretrained translation model. The PyTorch implementation contains its own attention, positional encoding, encoder, decoder and masks; it does not use `nn.Transformer`. A separate Helsinki Marian baseline is evaluated before and after fine-tuning.
 
-## Data and common evaluation
+**Final outcome:** the stable scratch model reaches **59.88 BLEU / 72.37 chrF** with beam 4; fine-tuned Helsinki reaches **62.68 / 76.77** on the same held-out sources. Training is complete. The integrated notebook defaults to reading the saved results; reproducing training is an explicit opt-in.
 
-Tracked `data/raw/rus.txt` contains 363,386 UTF-8 TSV rows: English / Russian / attribution. Supplied provenance: Kaggle / Tatoeba; no exact Kaggle URL was supplied. Preserve the CC-BY 2.0 (France) contributor/sentence credits and review the original license before redistribution. No dataset download or Kaggle API is used.
+## Data and evaluation
 
-Cleaning retains 363,385 pairs. Seed-42 source-group splits: **327,013 train / 18,248 val / 18,124 test pairs**. Group casefolded English alphanumerics before splitting so punctuation/case variants and multiple translations stay together. [Data report](docs/data_report.md). All workflows call the same split function and score all available references per exact English string using **sacreBLEU 13a + chrF2**. Schema v2 records signatures, raw-data SHA, seed and `test_split_sha256` of the exact source/reference set. Token caps never remove evaluation references.
+The checked-in `data/raw/rus.txt` comes from Kaggle, **“English-Russian dictionary for machine translate”**, originally from [Tatoeba](https://tatoeba.org/). It contains **363,386 UTF-8 TSV rows**, each with **English / Russian / attribution**. The corpus is Tatoeba **[CC-BY 2.0](https://creativecommons.org/licenses/by/2.0/)**; row credits identify the France port, [CC-BY 2.0 FR](https://creativecommons.org/licenses/by/2.0/fr/). Original contributor attribution is preserved in the raw file and processed rows. The code's MIT license does not relicense the data. The exact Kaggle listing URL was not supplied; the title is recorded instead of guessing a URL.
 
-**OPUS/Tatoeba contamination limitation:** Helsinki may have seen this held-out data during OPUS pretraining. This has not been ruled out. Identical local splits do not establish clean pretrained-model generalization. Multiple-reference scores are also not interchangeable with single-reference benchmarks. Repeated experimentation weakens this test set as a final holdout; collect an independent audited set before stronger claims.
+NFC normalization and whitespace collapse preserve case, punctuation and stress accents. Cleaning removes empty/invalid-script/control-character pairs, duplicate normalized pairs and pairs longer than 300 characters or 60 whitespace words on either side. Only one pair is removed by these rules. See the measured [data report](docs/data_report.md).
 
-## User-reported Colab results
+Splitting individual translation pairs would leak English sentences with several Russian answers. Instead, casefolded English alphanumeric keys define groups: all translations and simple punctuation/case variants go to **one** of train/validation/test. Sorted keys are shuffled with seed 42 and split **90/5/5 by group**, producing **327,013 / 18,248 / 18,124 pairs**. The test set has **12,556 distinct exact English strings** (12,542 normalized groups). SentencePiece is fitted on train only.
 
-These are supplied by the user, not independently reproduced from attached metrics/log artifacts. No GPU result JSON is fabricated from the summaries.
+Evaluation groups all available Russian references for each exact English source. Metrics use sacreBLEU 2.5.1, BLEU tokenizer `13a`, variable references (`nrefs:var`) and default chrF2. Missing reference slots are `None`, not duplicated translations. Full-test greedy and beam-4 use exactly the same sources and references. Schema v2 records the config, raw-data hash, seed and exact reference-pair hash:
 
-| Run | Full greedy BLEU / chrF | Full beam4 BLEU / chrF | Training |
-| --- | --- | --- | --- |
-| Original fast | 54.53 / 67.93 | Not measured on full test | 447 s, 12 epochs |
-| Helsinki zero-shot | 55.38 / 71.78 | 58.10 / 73.09 | 0 updates |
-| Helsinki fine-tuned | 56.41 / 74.52 | 62.68 / 76.77 | 1,901 s, 3 epochs |
-| Fresh fast v4 | TBD | TBD | New full-beam control run |
-| Stable large v4 | TBD | TBD | New Pre-LN run |
+```text
+test_split_sha256 = bc6e2388f0938c3332e747f174c98d16530f69b4641f0cb6ddb3c074e8f39f30
+```
 
-Original fast beam3 **subset** (1,024 sources): 57.11 / 70.38; greedy on that same subset: 56.61 / 69.77. Keep these separate from full-test scores.
+## Final Colab T4 results
 
-The previous Post-LN large run **collapsed**: test BLEU 0, repetitive `Я Я` / `Вы Вы`, best epoch 1, early stopping at 6. Validation loss rose 6.42 → 9.80; peak memory was 9.8 GB and epochs took ~137 seconds. Do not resume it. Helsinki finished successfully, but reported unsupported tails such as `Предлагаю вам съездить в Бостон по адресу:` show a faithfulness problem that high BLEU does not eliminate. Trigram suppression is not a general hallucination fix. [Diagnosis and reported evidence](docs/stability_diagnosis.md).
+These are the user's completed GPU measurements, recorded in [final_results.json](docs/final_results.json). Original metrics and samples live in Google Drive; the numbers below were not produced by the CPU smoke tests.
 
-## Current presets
+| Model | Greedy BLEU | Greedy chrF | Beam-4 BLEU | Beam-4 chrF | Training time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Transformer fast v4, d256, 3 layers, Post-LN | 54.53 | 67.93 | 56.08 | 69.18 | 475 s (7.9 min) |
+| Transformer large v4, d512, 6 layers, Pre-LN | 58.65 | 71.44 | 59.88 | 72.37 | 4,446 s (74.1 min) |
+| Large v4 + no-repeat-3 | — | — | 59.87 | 72.36 | Same weights |
+| Helsinki opus-mt-en-ru, zero-shot | 55.38 | 71.78 | 58.10 | 73.09 | 0 s |
+| Helsinki opus-mt-en-ru, fine-tuned, 3 epochs | 56.41 | 74.52 | **62.68** | **76.77** | 1,901 s (31.7 min) |
 
-| Config | Width / heads / layers per stack | FFN / BPE / cap | Normalization / tying | Epochs / patience | Tokens / warmup / Noam factor |
-| --- | --- | --- | --- | --- | --- |
-| `transformer_colab_fast.yaml` | 256 / 4 / 3 | 1024 / 8k / 24 | Post-LN / untied | 12 / 3 | 16,384 / 800 / 1 |
-| `transformer_colab_large.yaml` | 512 / 8 / 6 | 2048 / 16k / 64 | **Pre-LN / tied** | 30 / 5 | **16,384 / 3000 / .4** |
-| `helsinki_colab.yaml` | Pretrained Marian | Pretrained / cap 64 | Pretrained | 3 / 2 | Batch 64 × accumulation 2 |
+Times describe reported training, excluding installation, downloads and final generation. All rows use the full test set; the older 1,024-source beam experiment is excluded.
 
-Scratch: Adam β=(.9,.98), epsilon 1e-9, label smoothing .1, clipping 1, dropout .1, FP16 on CUDA. Buckets bound **B × (max source length + max target length)** including padding. Both fresh scratch configs evaluate full-test beam4 and greedy; large also records no-repeat-trigram off/on. Primary scores always use suppression **off**.
+Increasing scratch capacity improves beam BLEU by **3.80**. Large v4 beats Helsinki zero-shot in BLEU (**59.88 vs 58.10**) but trails it in chrF (**72.37 vs 73.09**). This is consistent with stronger adaptation to Tatoeba phrasing and weaker Russian morphology; chrF alone does not establish the cause. Beam search adds **1.55 / 1.23 / 6.27 BLEU** to fast / large / fine-tuned Helsinki. The greater Helsinki gain indicates decoding matters substantially for this model. No-repeat-3 changes large BLEU by **−0.01** and is left off. Fast v4 reproduces the earlier run's greedy BLEU to two decimals, evidence of score-level fixed-seed repeatability.
 
-## Local checks
+Large v4's validation loss **converged**: about **2.155 → 2.144 after epoch 20**. Its best checkpoint was epoch 25, and patience was exhausted at epoch 30 (`early_stopped`). This run completed all 30 planned epochs; early stopping did not shorten it.
 
-Use Python 3.12 from the checkout root:
+## Translation examples and remaining errors
+
+These are verbatim **large v4** outputs reported during evaluation. Exact fast/zero-shot/fine-tuned strings for these sources were not supplied. “Reported correct” is a human observation, not a reconstructed model output; a dash means unavailable. This distinction prevents invented cross-model examples.
+
+| English source | Fast v4 | Large v4 | Helsinki zero-shot | Helsinki fine-tuned |
+| --- | --- | --- | --- | --- |
+| The plans were discarded. | — | Планы были на борт. | — | Reported correct; exact output unavailable |
+| Sometimes cows are killed by coyotes. | — | Иногда коров убивают коров. | — | Reported correct; exact output unavailable |
+| They have lost 10 games in a row since their winning streak ended. | — | Они проиграли 10 игры в весе с тех пор, как выигрывают дуба. | — | Reported correct; exact output unavailable |
+| She quickly put the money out of sight. | — | Она быстро убрал деньги из виду. | — | Reported correct; exact output unavailable |
+| Tom is clearly lost. | Reported correct; exact output unavailable | Том явно потерял. | — | Reported correct; exact output unavailable |
+
+The examples expose rare-word substitution, long-sentence semantic collapse, gender agreement errors and occasional regressions relative to the smaller model. Fine-tuned Helsinki also sometimes adds unsupported content, such as **“Предлагаю вам съездить в Бостон по адресу:”**. Higher aggregate scores do not guarantee faithfulness.
+
+`scripts/build_example_table.py` joins actual saved outputs by English source, includes common available examples from all four runs and writes `docs/translation_examples.md`. Standard `samples.txt` contains only 30 examples, so the error cases above may be absent. If absent, use existing full prediction artifacts or saved best models for **inference only**; further training is unnecessary. The integrated notebook includes an optional saved-checkpoint inference section to obtain these exact four-way outputs without training.
+
+## Architecture and training
+
+Both scratch models use sinusoidal positions, scaled dot-product multi-head attention, causal/padding masks, residual connections, feed-forward blocks, dropout, label-smoothed cross-entropy, Adam (`β=(0.9,0.98)`, `ε=1e−9`), Noam warmup, gradient clipping at 1.0 and CUDA FP16 GradScaler. Validation uses loss and a fixed 128-source greedy subset; final evaluation uses full-test batched beam-4 plus greedy. Step logs expose actual learning rate, unscaled gradient norm, scaler and skipped updates. Nonfinite losses/gradients and sharp validation regression stop a failed run.
+
+| Setting | Fast v4 | Stable large v4 |
+| --- | --- | --- |
+| Joint train-only SentencePiece BPE vocabulary | 8,000 | 16,000 |
+| d_model / heads / encoder + decoder depth | 256 / 4 / 3 + 3 | 512 / 8 / 6 + 6 |
+| Feed-forward size / dropout | 1,024 / 0.1 | 2,048 / 0.1 |
+| Layer normalization | Post-LN | Pre-LN + final norms |
+| Embedding / output weights | Shared EN/RU input; untied output | Shared EN/RU input and output |
+| Initialization | Legacy Xavier | Xavier matrices, embedding std d_model^−0.5, zero linear biases |
+| Token cap including BOS/EOS | 24 | 64 |
+| Padded source + target tokens/batch | 16,384 | 16,384 |
+| Epochs / patience | 12 / 3 | 30 / 5 |
+| Noam warmup / factor | 800 / 1.0 | 3,000 / 0.4 |
+| Beam / length penalty / no-repeat | 4 / 0.6 / off | 4 / 0.6 / off; separate 3-gram ablation |
+
+Helsinki uses its own pretrained Marian tokenizer, max source length 64, max 64 new target tokens, Seq2SeqTrainer for 3 epochs, batch 64 × accumulation 2, AdamW learning rate **3e−5**, 5% warmup, weight decay 0.01, smoothing 0.1, gradient clip 1.0, FP16 and loss-based best selection. Zero-shot evaluation precedes any fine-tuning, and the resolved pretrained revision is recorded by the modular runner.
+
+## Failed experiment: large v3 → stable v4
+
+| Setting / observation | Large v3 (failed) | Large v4 (stable) |
+| --- | --- | --- |
+| Normalization | Post-LN | Pre-LN + final norms |
+| Input scaling / initialization | sqrt(d_model) scaling already present; legacy Xavier embedding | Keep scaling; normalize embedding initialization |
+| Embedding/output tying | Off | On |
+| Padded token budget | 32,768 | 16,384 |
+| Noam warmup / factor | 500 / 0.5 | 3,000 / 0.4 |
+| Peak learning rate | ~9.4e−4 reported | ~3.1e−4 reported (formula: 3.23e−4) |
+| Train loss | Stalled near 6.4 | 6.64 → 1.63 |
+| Validation loss | 6.42 → 9.80 | 5.28 → 2.14 |
+| Training outcome | Failed by epoch 6; best epoch 1 | Best epoch 25; validation plateau by epoch 30 |
+| Test output | BLEU 0; “Я Я” / “Вы Вы” | Beam BLEU 59.88 |
+| FP16 skipped steps | 2 in epoch 1 | 2 across 30 epochs |
+
+A high learning-rate peak reached too soon in a deep Post-LN stack is consistent with the observed instability. Doubling the earlier token budget also reduced optimizer steps per epoch. The v4 changes make optimization gentler; several settings changed together, so this is a stabilization experiment rather than a causal ablation. FP16 skips identify nonfinite gradients; two isolated skips do not by themselves explain collapse. The scaler now unscales before norm/clipping, skips both optimizer and scheduler on nonfinite gradients and logs the scale. The repeated v3 outputs were symptoms of training failure; the no-repeat ablation does not support treating them as a decoding fix.
+
+## Run locally or in Colab
+
+Python 3.11/3.12 is recommended. From a fresh checkout:
 
 ```bash
+git clone --branch feat/scratch-transformer https://github.com/vcdx1111/Machine-translation-English-to-Russian-.git
+cd Machine-translation-English-to-Russian-
 python -m venv .venv
 source .venv/bin/activate
-# CPU only; omit this wheel-index command on GPU.
-pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements-helsinki.txt
-python -m pytest -q
-python -m src.overfit --config configs/transformer_colab_large.yaml --output results/overfit.json
-python -m src.train --config configs/transformer_fast_v4_cpu.yaml
-python -m src.train --config configs/transformer_large_cpu.yaml
+python -m pip check
+pytest -q
 ```
 
-Scratch-only dependencies are in `requirements.txt`; full pytest additionally needs the Helsinki requirements. CPU smoke outputs are not model-quality benchmarks. The overfit test uses **the full configured width, layer count and vocabulary**, two short pairs, dropout .1 and smoothing .1. It uses fixed LR 3e-4 for bounded one-batch memorization, not 3,000 production warmup steps. It must substantially reduce loss and exactly greedy-decode both references. The larger loss floor with smoothing and a 16k vocabulary is accounted for.
+The requirements files pin direct dependencies. For a CPU-only machine, install the matching CPU torch/torchvision wheels from PyTorch's CPU index before the requirements. No Kaggle API or dataset download script is needed; raw TSV data is tracked.
 
-## Colab: fast, then stable large
-
-[notebooks/train_transformer.ipynb](notebooks/train_transformer.ipynb) clones/updates `feat/scratch-transformer` and runs both in order:
-
-1. Select T4, install packages, mount Drive.
-2. Use **new** names `scratch_fast_v4_fullbeam` and `scratch_large_stable_v4`. Set only the unfinished run's `resume=True` after reconnect.
-3. Fast: one measured epoch → projection → resume same checkpoint → full beam4/greedy evaluation.
-4. Fast cleanup cell: after successful evaluation, keep a compact inference-only `best.pt`; delete `last.pt` and resume state.
-5. Large: one measured epoch → projection → resume → full beam4/greedy/repetition-ablation evaluation.
-6. Large cleanup cell: keep only compact `best.pt`.
-7. Supply the existing Helsinki result directory and generate the **four-way** comparison. No Helsinki retraining is required.
-
-Initial planning: **fast ~10–20 minutes, large ~75–150 minutes**, including evaluation/Drive/logging allowances. The old fast measured 447 seconds and old large 137 seconds/epoch; the new architecture, smaller token batch, more updates and checkpoint I/O can change timing. These new ranges are not measured T4 results. The notebook prints the first/recent actual epoch projection; neither dataset nor epochs is silently dropped.
-
-Step/epoch logs stream live. NaN/inf loss stops immediately; validation loss **>1.25× best AND ≥0.5 above best** stops the run. Eight consecutive overflow skips, or >25% skips after at least 20 attempts, also stop. A few early GradScaler calibration skips alone do not establish collapse. Diverged CLI runs exit nonzero, preserve diagnostics/best, and cannot be resumed/pruned automatically. Completed/pruned runs are skipped on notebook reconnect after config checks.
-
-Equivalent CLI (use a new config/run for incompatible changes):
+For **optional** reproduction, the modular CLIs are:
 
 ```bash
-python -u -m src.train --config configs/transformer_colab_fast.yaml --stop-after-epochs 1 --skip-test
-python -u -m src.train --config configs/transformer_colab_fast.yaml --resume checkpoints/scratch_fast_v4/last.pt
-python -u -m src.train --config configs/transformer_colab_large.yaml --stop-after-epochs 1 --skip-test
-python -u -m src.train --config configs/transformer_colab_large.yaml --resume checkpoints/scratch_large_stable_v4/last.pt
-# Only AFTER completed training and evaluation:
-python -m src.checkpoints --checkpoint-dir checkpoints/scratch_large_stable_v4 --results-dir results/scratch_large_stable_v4
-# Compact best remains evaluable/translatable, but cannot resume training:
-python -m src.evaluate --checkpoint checkpoints/scratch_large_stable_v4/best.pt --results-dir results/large_recheck
-python -m src.translate --checkpoint checkpoints/scratch_large_stable_v4/best.pt --text "Sometimes cows are killed." --beam-size 4
+python -m src.train --config configs/transformer_colab_fast.yaml
+python -m src.train --config configs/transformer_colab_large.yaml
+python -m src.helsinki --config configs/helsinki_colab.yaml --stage all
+python -m src.evaluate --checkpoint checkpoints/scratch_large_stable_v4/best.pt --beam-size 4
 ```
 
-Cleanup is intentional and irreversible for resume capability: model/optimizer/scaler/RNG/current-state duplicates are removed after verifying matching run IDs and completed evaluation. The best weights, tokenizer, metadata and all results remain. Running/calibrated/diverged runs are refused. Do not run concurrent writers. Retain full state instead if you plan to continue training later. Only load checkpoints you trust.
+Use a distinct run directory when repeating an experiment. Modular training can resume epoch-boundary optimizer/RNG state from `last.pt` or Helsinki `--resume latest`. `python -m src.checkpoints --help` explains irreversible best-only compaction; compact artifacts support inference, not training resume. Never load untrusted PyTorch pickle checkpoints.
 
-## Helsinki workflow
+For Colab, select a **T4** runtime and open:
 
-[notebooks/finetune_helsinki.ipynb](notebooks/finetune_helsinki.ipynb): clone/install `requirements-helsinki.txt` → separate Drive run → zero-shot full evaluation → first-epoch timing → Seq2SeqTrainer resume → best-validation full evaluation. The completed user run took 1,901 seconds of fine-tuning; prior 1–2 hour planning was conservative, not a measured requirement. The code/config is unchanged by this scratch stabilization work.
+- [en_ru_translation_full.ipynb](notebooks/en_ru_translation_full.ipynb): standalone code, no `src` imports. Run top-to-bottom to mount Drive, inspect data, load final results and compare. All model training flags default **False**. `RUN_FAST`, `RUN_LARGE`, `RUN_HELSINKI_ZERO_SHOT` and `RUN_HELSINKI_FT` explicitly opt into reproduction. Only best checkpoints are saved; this notebook trades optimizer-state resume for Drive space.
+- [train_transformer.ipynb](notebooks/train_transformer.ipynb): modular fast/large experiment runner, resumable training, streaming logs and checkpoint cleanup.
+- [finetune_helsinki.ipynb](notebooks/finetune_helsinki.ipynb): modular zero-shot/fine-tuning runner, resumable Trainer state and streaming logs.
 
-The manifest pins the resolved base snapshot, data/test identity and optimization contract. Trainer saves optimizer, linear schedule, scaler/RNG/early-stopping state; keep the whole run for resume. Validation uses loss only. Decoder uses pretrained tokenizer, deterministic cached generation, beam4 and greedy. The fixture command below tests the API offline, **not pretrained weights**:
+The modular notebooks clone `feat/scratch-transformer`; the standalone notebook fetches that branch **only for the checked-in data** if necessary, and runs embedded code. When reusing a Colab session with a different torch/transformers version already imported, restart the runtime after installation before running model cells.
+
+Saved artifacts live under `/content/drive/MyDrive/en_ru_translation/`:
+
+```text
+scratch_fast_v4_fullbeam/results/
+scratch_large_stable_v4/results/
+helsinki_v1_seed42/results/zero_shot/
+helsinki_v1_seed42/results/finetuned/
+```
+
+Each run normally writes schema-v2 `metrics.json`, `samples.txt` and `train_log.csv`. The recovered Helsinki runs have **metrics and samples only**: both completed successfully, but their missing training logs cannot be reconstructed. The comparison script labels legacy Helsinki evaluation artifacts `completed`, preserves explicit statuses and does not require a training log.
+
+### Generate figures and exact example tables without training
+
+Run these in the cloned repository in Colab after mounting Drive:
 
 ```bash
-python -m scripts.make_marian_fixture --output /tmp/marian-fixture
-python -m src.helsinki --config /tmp/marian-fixture/fixture.yaml --stop-after-epochs 1 --skip-test
-python -m src.helsinki --config /tmp/marian-fixture/fixture.yaml --resume latest
+python scripts/compare_results.py \
+  /content/drive/MyDrive/en_ru_translation/scratch_fast_v4_fullbeam/results \
+  /content/drive/MyDrive/en_ru_translation/scratch_large_stable_v4/results \
+  /content/drive/MyDrive/en_ru_translation/helsinki_v1_seed42/results \
+  --require-four-models --output docs/model_comparison
+python scripts/plot_results.py \
+  --results-root /content/drive/MyDrive/en_ru_translation \
+  --loss-log /content/drive/MyDrive/en_ru_translation/scratch_large_stable_v4/results/train_log.csv \
+  --output docs/figures
+python scripts/build_example_table.py \
+  --results-root /content/drive/MyDrive/en_ru_translation
 ```
 
-Cloud access to actual Hugging Face weights was blocked by CONNECT 403; the user GPU results are separate evidence. CPU tests use real Marian/Trainer with local random weights and verify exact resume. Torchvision is pinned to match torch for Colab compatibility. Framework tied-alias reload/tokenizer-deprecation messages do not alter the CPU equality test. Unsupported extra tails require source-faithfulness review; no unvalidated Helsinki decoding change is silently introduced here.
-
-## Artifacts and fair comparison
-
-Each scratch run / Helsinki stage (`zero_shot/`, `finetuned/`) writes `metrics.json`, `train_log.csv`, `samples.txt`. Schema v2 includes exact test identity, signatures, effective config and full-test greedy/beam scores. Zero-shot training time is 0 and its CSV is header-only.
-
-Scratch adds `step_log.csv`: every attempted batch's **unscaled pre-clip norm**, clipping bound, proposed LR, **actual applied LR** (blank on skipped update), successful optimizer-step index, scaler before/after and update/skip event. `run_status.json`, `divergence.json` when applicable, and `runtime_estimate.json` distinguish completion, early stopping, calibration and failure. Large suppression-on output goes to `samples_no_repeat.txt` and `repetition_ablation`. Each new scratch run has an ID to prevent cross-run checkpoint cleanup. Old evaluation checkpoints remain loadable, but training pipeline v3/new architecture require new runs.
-
-```bash
-python scripts/compare_results.py results/scratch_fast_v4 results/scratch_large_stable_v4 results/helsinki \
-  --require-four-models --output results/comparison_v4
-```
-
-Use corresponding Drive paths in Colab. The strict flag requires fast, large, Helsinki zero-shot and fine-tuned with schema v2 exact identities and full beam4 plus greedy (CPU fixtures are explicitly exempted with `--include-cpu`); checks test hashes/signatures/seed/counts, shows status/experiment/policy, labels legacy identity as unverified, and excludes subset scores and CPU smoke by default. Times are per-run totals repeated per decoding row; do not sum them. It cannot reconstruct raw GPU artifacts from chat summaries. Different tokenizers/caps/pretraining and beam normalization make this a system comparison, not a single-variable capacity ablation.
+The plots are `docs/figures/model_scores.png` and `large_v4_loss.png` with a provenance JSON. The score chart can also be generated locally with `python scripts/plot_results.py` from the explicitly user-reported aggregates. A loss curve **always** requires the real epoch CSV; endpoint values are never expanded into a synthetic curve. After generation, commit the figures and generated Markdown (including verbatim examples), and embed the desired images in this README. No broken image links are committed in advance.
 
 ## Design decisions
 
-- Preserve data cleaning, grouping, split seed and all test references. No test text fits scratch SentencePiece. Source paraphrases and pretrained OPUS overlap remain limitations.
-- Diagnosis: old layers use **Post-LN**. The 500-step Noam plan implied LR ≈0.000551 at step 279 and ≈0.000935 at step 558, consistent with the reported first two epoch LRs. This supports an overly aggressive schedule/depth interaction, not a scheduler-arithmetic bug. Without old stepwise norms we cannot prove a unique cause. Two initial FP16 skips can be ordinary scale calibration.
-- **Pre-LN is optional** and defaults on for large, with final encoder and decoder normalization. Fast explicitly retains Post-LN as the successful control. This is a combined stabilization intervention, not proof that one change alone fixes convergence.
-- Keep `sqrt(d_model)` embedding scaling. Legacy Xavier initialized the embedding using both vocabulary and width (16k/512 std≈.011); after scaling its content std≈.25 versus positional components. Large now uses **Normal(0,d_model^-1/2)**, producing unit content variance after scaling; linear weights stay Xavier, biases zero, LayerNorm scale/bias 1/0. Fast keeps legacy initialization to preserve its control recipe.
-- **Tie large input/output weights** for the joint vocabulary; fast stays untied. This removes one 16k×512 output matrix (~8.2M parameters). PAD masks/ignored target loss remain explicit; the tied PAD row can receive output-layer gradients. Initialization zeroes its PAD row but does not claim it is permanently frozen.
-- Large keeps 512×6 / FFN2048 / dropout .1 / 16k BPE / cap64. Lower `max_tokens` **32,768→16,384**, max sentences 1,024. Train-only 16k tokenization still clips only one training pair at 64. Measured new epoch-zero batches **479** versus old 279; padding **11.9%**. Smaller batches increase update frequency and reduce the observed 9.8 GB footprint; new T4 peak is not yet measured.
-- Warmup **3000** / factor **.4** yields max LR `0.4/sqrt(512*3000)≈0.00032275`, ~one third of the previous 0.000988. With 479 batches it spans **6.26 epochs** versus old ~1.79. Early/end-of-epoch LR is not the mathematical peak. Successful optimizer updates alone advance Noam, so scaler skips cannot accelerate warmup.
-- AMP update ordering: scale → backward → **unscale → inspect/clip norm**. Nonfinite gradients explicitly skip both optimizer and Noam and back off the scaler. This also covers the edge case where all gradient elements are finite but FP32 norm reduction overflows: relying on `scaler.step` alone could miss that. Norm/scale/LR logging makes the next T4 diagnosis auditable. CPU GradScaler tests cover both overflow modes; they do not claim GPU numerical equivalence.
-- Stop nonfinite loss immediately and stop substantial validation regression before another epoch. Preserve the last safe/best checkpoints; never save corrupted weights as best. Failure remains labeled even if older best weights are evaluated. Guards use validation/training only, never test metrics.
-- Full-width/depth/vocabulary one-batch overfit tests require a large relative loss drop and exact greedy decoding. Smoothing .1 has an entropy floor (~1.293 for 16k classes), so requiring smoothed loss below 1 would be mathematically wrong. The bounded test uses LR 3e-4 and does not certify production warmup, FP16 or generalization.
-- Preserve full-test unconstrained beam4 as primary, greedy alongside, large trigram suppression on/off as a diagnostic. Repetition suppression cannot establish semantic fidelity or fix arbitrary Helsinki extra tails. Avoid selecting whichever test-policy score is highest.
-- Save full resume state while training; compact to best-only after evaluation to limit Drive use. Unique run IDs, status checks and model/data checks protect unrelated files. Keep logs, samples, tokenizer and exact config. CPU toy results, user-reported GPU observations and unrun new GPU workflows remain separate.
-- Each cloud task is isolated; use the existing checkout, no extra worktrees. Never commit model weights or credentials.
+- **Keep evaluation leakage-resistant:** group source variants before splitting; retain multiple references and store exact test identity. Token caps truncate model inputs/targets, not the held-out reference set.
+- **Use dataset-sized tokenizers:** 8k BPE keeps the short-sentence baseline cheap; 16k reduces segmentation of rare Russian words for the larger model. Dropout 0.1 remains conservative with 327k training pairs. Neither vocabulary choice was isolated in a controlled ablation.
+- **Reduce padding first:** shuffle length-sorted pools, then budget padded source+target tokens. CLI loaders use two spawned workers and CUDA pinned memory. Embedded notebook classes cannot be imported by spawned workers, so its loaders use zero workers while retaining the same batches and optimization settings.
+- **Cap lengths using observed distributions:** English/Russian p99 lengths are 13/12 whitespace words; the fast 24-subword cap comes from the measured tokenizer profile. Large's 64 cap protects longer examples. Word and subword counts are different units; short training data still limits long-sentence generalization.
+- **Stabilize large optimization:** with 16,384 tokens and roughly 479 batches/epoch, 3,000 warmup steps span about 6.3 epochs. `0.4 × 512^−0.5 × 3000^−0.5 ≈ 3.23e−4`, below 5e−4; warmup advances only after successful updates. This preserves smaller updates while using T4 memory comfortably. Pre-LN, normalized embedding initialization and weight tying reduce the fragile scale interaction in v3.
+- **Separate quality from execution status:** an evaluated run can be `early_stopped`; convergence and best epoch explain that status. Legacy Helsinki artifacts confirm completed evaluation despite missing CSV logs. CPU fixtures carry `cpu_smoke_only` and never enter GPU score tables.
+- **Make final publication honest:** final aggregates are attributed to user measurements; unavailable verbatim outputs and logs stay marked missing. No extra GPU training is part of finalization. Integrated training is disabled by default and best-only checkpoints avoid retaining optimizer duplicates. Overwriting Drive files can still accumulate previous versions in Trash; review and empty Trash separately if needed.
+- **Retain experiment history:** earlier configs, profiling and stability reports remain under their descriptive paths or `configs/archive` / `docs/archive`. Their historical estimates are superseded by the final measured table above.
 
-See [stability diagnosis and validation](docs/stability_diagnosis.md). After running, send metrics, train/step logs, status/ETA, divergence details if any, samples (large off/on), exact YAML/commit, GPU memory/epoch time and errors. Keep compact best on Drive. Build the final all-stage notebook later.
+## Limits and future work
+
+Multiple valid references increase the chance that a hypothesis matches one answer, so these BLEU scores can be higher than single-reference scores. Tatoeba mostly contains short, comparatively simple sentences; this test does not establish quality on news, technical documents or long text. Normalized-source grouping prevents direct English duplication but cannot exclude semantic paraphrases or domain overlap.
+
+Helsinki's OPUS pretraining **may include Tatoeba**, so test contamination has not been ruled out. Its comparison includes a potential pretraining advantage as well as domain adaptation. These numbers **cannot be compared directly with WMT or other general benchmark scores**. Only one split/seed is reported; confidence intervals and multi-seed variance were not measured. Rare vocabulary, Russian inflection, long-context retention and hallucinated suffixes remain weaknesses.
+
+Future work could evaluate an independently sourced, contamination-audited test set, add paired bootstrap intervals, inspect faithfulness/morphology systematically and improve domain or long-sentence coverage. Further training is outside this completed experiment.
+
+## Repository and validation
+
+`src/` holds reusable pipeline code; `configs/` records reproducible experiments; `tests/` checks masks/shapes/tokenizers, optimizer/scaler safeguards, resume, batched decoding, result identity and tiny-batch overfitting. `scripts/` provides reporting, notebook generation and publication audits. `docs/` holds measured reports and finalization evidence. Generated model weights, processed data and run outputs are ignored; the raw corpus and its contributor credits are retained.
+
+```bash
+python scripts/build_full_notebook.py --check
+python scripts/validate_full_notebook.py --output /tmp/en-ru-notebook-smoke
+python scripts/audit_publication.py
+pytest -q
+```
+
+The standalone smoke executes all stages with tiny CPU models, including a **random local Marian fixture**, and verifies artifacts. It does not validate pretrained Helsinki quality or Colab CUDA behavior. See [final validation](docs/final_validation.md) for executed checks. Code: [MIT](LICENSE). Corpus: Tatoeba CC-BY 2.0 with original row attribution.
