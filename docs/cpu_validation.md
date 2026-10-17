@@ -1,5 +1,8 @@
 > Historical initial implementation evidence. Current stable scratch/Helsinki comparison and checks are in [stability_diagnosis.md](stability_diagnosis.md).
 
+> Historical experiment record. Final measured GPU results and publication instructions are in the root README; old timing estimates are superseded.
+
+
 # CPU validation evidence
 
 This is a functional smoke run, **not a trained translation benchmark**. No GPU training was performed. The raw dataset remains unchanged.

@@ -5,6 +5,23 @@ import json
 from pathlib import Path
 
 
+def result_status(metrics):
+    """Old Helsinki writers emitted metrics only after evaluation, but omitted status.
+
+    Recovered metrics/samples are sufficient; never require or manufacture a training
+    log. Explicit statuses (including failures) always take precedence. Completion
+    describes execution, not model quality or uncontaminated pretraining.
+    """
+    status = metrics.get('training_status')
+    if status and status != 'unreported':
+        return status
+    if (metrics.get('model_family') == 'helsinki_marian'
+            and metrics.get('stage') in ('zero_shot', 'fine_tuned')
+            and all(k in metrics for k in ('test_bleu', 'test_chrf', 'test_sources'))):
+        return 'completed'
+    return status or 'unreported'
+
+
 def compare(paths, include_cpu=False, require_four=False):
     found = set()
     for path in paths:
@@ -69,7 +86,7 @@ def compare(paths, include_cpu=False, require_four=False):
         ngram = m.get('no_repeat_ngram_size', 0)
         if ngram:
             policy += f'/no-repeat-{ngram}'
-        rows.append(dict(run=str(path.parent), model=m.get('experiment') or m.get('model_family', 'legacy'), status=m.get('training_status','unreported'), stage=m.get('stage','legacy'), policy=policy,
+        rows.append(dict(run=str(path.parent), model=m.get('experiment') or m.get('model_family', 'legacy'), status=result_status(m), stage=m.get('stage','legacy'), policy=policy,
                          beam=m.get('test_beam_size', m.get('config',{}).get('evaluation',{}).get('beam_size','?')),
                          bleu=m['test_bleu'], chrf=m['test_chrf'], train_seconds=m['training_seconds'],
                          eval_seconds=m.get('evaluation_seconds', 0.), sources=m['test_sources'], identity=identity))
@@ -98,7 +115,7 @@ def write_comparison(rows, output):
                      f'{r["bleu"]:.2f} | {r["chrf"]:.2f} | {r["train_seconds"]:.1f} | '
                      f'{r["eval_seconds"]:.1f} | {r["sources"]} | {r["identity"]} |')
     lines += ['', 'Times are per-run totals repeated per policy; do not sum rows. Full-test scores only. Legacy files lack exact reference-set verification. '
-              'Helsinki may have Tatoeba pretraining contamination. Different tokenizers/caps/decoding policies are not controlled ablations.']
+              'Legacy Helsinki evaluation artifacts imply completed execution even if the recovered training log is absent. Helsinki may have Tatoeba pretraining contamination. Different tokenizers/caps/decoding policies are not controlled ablations.']
     text = '\n'.join(lines)+'\n'
     output.with_suffix('.md').write_text(text)
     return text

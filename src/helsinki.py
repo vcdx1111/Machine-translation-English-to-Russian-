@@ -105,6 +105,7 @@ def evaluate(model, tokenizer, cfg, rows, output, stage, identity, revision, tra
                    test_decoding='beam' if beams > 1 else 'greedy', test_beam_size=beams,
                    model_family='marian_cpu_fixture' if revision.startswith('local:') else 'helsinki_marian',
                    pretrained_model_validated=not revision.startswith('local:'), stage=stage, base_revision=revision,
+                   training_status='completed',
                    no_repeat_ngram_size=cfg['evaluation'].get('no_repeat_ngram_size', 0),
                    config=cfg, device=str(device), training_seconds=training_seconds,
                    evaluation_seconds=time.perf_counter() - begin,
